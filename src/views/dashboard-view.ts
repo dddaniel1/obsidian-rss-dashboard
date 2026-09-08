@@ -132,6 +132,7 @@ export class RssDashboardView extends ItemView {
   private lastViewportMobileSidebarMode: boolean | null = null;
   private inlineArticle: FeedItem | null = null;
   private articleRenderer: ArticleRenderer | null = null;
+  private inlineFullTextButton: HTMLElement | null = null;
   private lastClickAnchorKey: string | null = null;
 
   // ── Highlight match stats ─────────────────────────────────────────────────
@@ -710,6 +711,9 @@ export class RssDashboardView extends ItemView {
           flush,
           item,
         );
+      },
+      onFullArticleStateChange: (isFullArticle, isLoading) => {
+        this.updateInlineFullTextButton(isFullArticle, isLoading);
       },
     });
 
@@ -4173,6 +4177,7 @@ export class RssDashboardView extends ItemView {
     setIcon(backButton, "arrow-left");
     backButton.addEventListener("click", () => {
       this.inlineArticle = null;
+      this.inlineFullTextButton = null;
       void this.render();
     });
 
@@ -4231,6 +4236,33 @@ export class RssDashboardView extends ItemView {
         }
       });
 
+      this.inlineFullTextButton = actions.createDiv({
+        cls: "rss-reader-action-button rss-reader-fulltext-button",
+        attr: {
+          title: "Load full article",
+          "aria-label": "Load full article",
+          role: "button",
+          tabindex: "0",
+        },
+      });
+      setIcon(this.inlineFullTextButton, "book-open");
+      const handleFullTextClick = (e: Event) => {
+        e.stopPropagation();
+        if (this.articleRenderer) {
+          void this.articleRenderer.loadFullArticle(body);
+        }
+      };
+      this.inlineFullTextButton.addEventListener("click", handleFullTextClick);
+      this.inlineFullTextButton.addEventListener(
+        "keydown",
+        (e: KeyboardEvent) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleFullTextClick(e);
+          }
+        },
+      );
+
       const browserButton = actions.createDiv({
         cls: "rss-reader-action-button",
         attr: { title: "Open in Browser" },
@@ -4253,6 +4285,39 @@ export class RssDashboardView extends ItemView {
     if (this.articleRenderer && this.inlineArticle) {
       const related = this.getRelatedItems(this.inlineArticle);
       void this.articleRenderer.render(body, this.inlineArticle, related);
+      this.updateInlineFullTextButton(
+        this.articleRenderer.isContentFullArticle(),
+        this.articleRenderer.isFullArticleLoading(),
+      );
+    }
+  }
+
+  private updateInlineFullTextButton(
+    isFullArticle: boolean,
+    isLoading: boolean,
+  ): void {
+    if (!this.inlineFullTextButton) return;
+    if (isLoading) {
+      this.inlineFullTextButton.addClass("is-loading");
+      this.inlineFullTextButton.setAttribute("title", "Loading full article...");
+      this.inlineFullTextButton.setAttribute(
+        "aria-label",
+        "Loading full article...",
+      );
+      return;
+    }
+    this.inlineFullTextButton.removeClass("is-loading");
+    if (isFullArticle) {
+      this.inlineFullTextButton.addClass("is-loaded");
+      this.inlineFullTextButton.setAttribute("title", "Reload full article");
+      this.inlineFullTextButton.setAttribute(
+        "aria-label",
+        "Reload full article",
+      );
+    } else {
+      this.inlineFullTextButton.removeClass("is-loaded");
+      this.inlineFullTextButton.setAttribute("title", "Load full article");
+      this.inlineFullTextButton.setAttribute("aria-label", "Load full article");
     }
   }
 

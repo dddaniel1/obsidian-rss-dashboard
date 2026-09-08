@@ -4,6 +4,7 @@ import {
   robustFetchDetailed,
   ensureUtf8Meta,
 } from "./platform-utils";
+import { resolveAbsoluteHttpUrl } from "./url-utils";
 
 /** Markers that indicate the page is a WAF/bot-challenge block rather than real content. */
 const BLOCKED_MARKERS = [
@@ -14,9 +15,6 @@ const BLOCKED_MARKERS = [
   "access denied",
   "403 forbidden",
   "enable javascript and cookies",
-  "paywall",
-  "subscription required",
-  "subscribe to continue",
   "401 unauthorized",
 ];
 
@@ -51,6 +49,10 @@ function isRestrictedStatus(status: number | undefined): boolean {
 export function isBlockedResponse(html: string): boolean {
   if (!html || html.trim().length < 200) {
     return true;
+  }
+  // Cloudflare/WAF challenge pages are small stubs (< 25KB). Substantial pages with tens of KB are not challenge screens.
+  if (html.length > 30000) {
+    return false;
   }
   const lower = html.toLowerCase();
   return BLOCKED_MARKERS.some((marker) => lower.includes(marker));
@@ -89,11 +91,115 @@ export async function fetchAndParse(
   return article?.content ?? "";
 }
 
-function parseArticleContent(html: string): string {
+export function convertRelativeUrlsInContent(
+  content: string,
+  baseUrl: string,
+): string {
+  if (!content || !baseUrl) return content;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    doc.querySelectorAll("img").forEach((img) => {
+      const src = img.getAttribute("src");
+      if (src) {
+        const abs = resolveAbsoluteHttpUrl(src, baseUrl);
+        if (abs) img.setAttribute("src", abs);
+      }
+      ["data-src", "data-original"].forEach((attr) => {
+        const val = img.getAttribute(attr);
+        if (val) {
+          const abs = resolveAbsoluteHttpUrl(val, baseUrl);
+          if (abs) img.setAttribute(attr, abs);
+        }
+      });
+    });
+    doc.querySelectorAll("a").forEach((a) => {
+      const href = a.getAttribute("href");
+      if (href) {
+        const abs = resolveAbsoluteHttpUrl(href, baseUrl);
+        if (abs) a.setAttribute("href", abs);
+      }
+    });
+    return new XMLSerializer().serializeToString(doc.body);
+  } catch {
+    return content;
+  }
+}
+
+export function parseArticleContent(html: string, baseUrl?: string): string {
+  if (!html) return "";
   const withMeta = ensureUtf8Meta(html);
   const doc = new DOMParser().parseFromString(withMeta, "text/html");
-  const article = new Readability(doc).parse();
-  return article?.content ?? "";
+  let content = "";
+  try {
+    const docClone = doc.cloneNode(true) as Document;
+    const article = new Readability(docClone).parse();
+    if (article?.content && article.content.trim().length > 100) {
+      content = article.content;
+    }
+  } catch (err) {
+    console.debug("[RSS Dashboard] Readability parse error:", err);
+  }
+
+  if (!content) {
+    const selectors = [
+      "main article",
+      "article",
+      "[role='main']",
+      "main",
+      ".rich_media_content",
+      "#js_content",
+      ".Post-RichText",
+      ".RichContent-inner",
+      ".article-viewer",
+      ".markdown-body",
+      "#article-content",
+      "#post-content",
+      "#article_content",
+      ".post-content",
+      ".entry-content",
+      ".article-content",
+      ".article-body",
+      ".article__body",
+      ".article-text",
+      ".story-body",
+      ".content-body",
+      ".main-content",
+      ".full-text",
+      ".post-body",
+      ".entry-body",
+      ".article-entry",
+      "[itemprop='articleBody']",
+      "[data-testid='article-body']",
+      "#content",
+      ".content",
+    ];
+    for (const selector of selectors) {
+      const el = doc.querySelector(selector);
+      if (el && (el.textContent || "").trim().length > 200) {
+        content = new XMLSerializer().serializeToString(el);
+        break;
+      }
+    }
+  }
+
+  if (!content && doc.body) {
+    const cleanBody = doc.body.cloneNode(true) as HTMLElement;
+    cleanBody
+      .querySelectorAll(
+        "script, style, iframe, nav, footer, header, noscript, aside",
+      )
+      .forEach((n) => n.remove());
+    const cleanedText = (cleanBody.textContent || "").trim();
+    if (cleanedText.length > 200) {
+      content = cleanBody.innerHTML;
+    }
+  }
+
+  if (content && baseUrl) {
+    return convertRelativeUrlsInContent(content, baseUrl);
+  }
+
+  return content;
 }
 
 /**
@@ -105,95 +211,137 @@ export async function fetchWithProxyFallbackDetailed(
   url: string,
   proxyUrl?: string,
 ): Promise<FullArticleFetchResult> {
+  let directRestricted = false;
+
+  // 1. Direct fetch
   try {
-    // 1. Direct fetch
     const directResponse = await robustFetchDetailed(url, {
       headers: DEFAULT_HEADERS,
     });
-    const directHtml = directResponse.text;
+    const directHtml = directResponse.text || "";
+    const directStatus = directResponse.status ?? 0;
     const directBlocked =
-      isBlockedResponse(directHtml) || isRestrictedStatus(directResponse.status);
+      isBlockedResponse(directHtml) || isRestrictedStatus(directStatus);
 
     if (!directBlocked) {
-      console.debug(
-        `[RSS Dashboard] Direct fetch succeeded for ${url} (${directHtml.length} chars).`,
-      );
-      return { content: parseArticleContent(directHtml), failureType: "none" };
-    }
-
-    const directRestricted =
-      isRestrictedStatus(directResponse.status) ||
-      isRestrictedSignal(directHtml);
-    console.warn(
-      `[RSS Dashboard] Direct fetch returned blocked/empty response for ${url} (${directHtml?.length ?? 0} chars). Attempting proxy...`,
-    );
-
-    // 2. Proxy fallback (silent, logs only)
-    if (!proxyUrl || proxyUrl.trim() === "") {
+      const parsed = parseArticleContent(directHtml, url);
+      if (parsed && parsed.trim().length > 100) {
+        console.debug(
+          `[RSS Dashboard] Direct fetch succeeded for ${url} (${directHtml.length} chars).`,
+        );
+        return {
+          content: parsed,
+          failureType: "none",
+        };
+      }
       console.warn(
-        "[RSS Dashboard] No CORS proxy configured. Cannot retry blocked fetch.",
+        `[RSS Dashboard] Direct fetch succeeded (${directHtml.length} chars) but content could not be parsed for ${url}. Attempting proxy...`,
       );
-      return {
-        content: "",
-        failureType: directRestricted ? "restricted" : "network",
-      };
-    }
-
-    const proxyTarget =
-      proxyUrl.trim().replace(/\/$/, "") + encodeURIComponent(url);
-
-    const proxyResponse = await robustFetchDetailed(proxyTarget, {
-      headers: DEFAULT_HEADERS,
-    });
-    const proxyHtml = proxyResponse.text;
-
-    if (
-      !proxyHtml ||
-      isBlockedResponse(proxyHtml) ||
-      isRestrictedStatus(proxyResponse.status)
-    ) {
-      const proxyRestricted =
-        isRestrictedStatus(proxyResponse.status) ||
-        isRestrictedSignal(proxyHtml || "");
+    } else {
+      directRestricted =
+        isRestrictedStatus(directStatus) || isRestrictedSignal(directHtml);
       console.warn(
-        `[RSS Dashboard] Proxy fetch also returned blocked/empty response for ${url}.`,
+        `[RSS Dashboard] Direct fetch returned blocked/empty response for ${url} (${directHtml.length} chars). Attempting proxy...`,
       );
-      return {
-        content: "",
-        failureType:
-          directRestricted || proxyRestricted ? "restricted" : "network",
-      };
     }
-
-    console.debug(
-      `[RSS Dashboard] Proxy fetch succeeded for ${url} (${proxyHtml.length} chars).`,
-    );
-    return { content: parseArticleContent(proxyHtml), failureType: "none" };
   } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
     const error = e as {
-      message?: string;
       status?: number;
       statusCode?: number;
       response?: { status?: number };
     };
-    const msg = e instanceof Error ? e.message : String(e);
     const status =
       error?.status ?? error?.statusCode ?? error?.response?.status ?? 0;
-    const restricted = isRestrictedStatus(status) || isRestrictedSignal(msg);
-    const logMessage = restricted
+    directRestricted = isRestrictedStatus(status) || isRestrictedSignal(msg);
+    const logMessage = directRestricted
       ? `[RSS Dashboard] Restricted article fetch blocked (${status || "no-status"}): ${msg}`
       : `[RSS Dashboard] fetchWithProxyFallback error: ${msg}`;
-
-    if (restricted) {
+    if (directRestricted) {
       console.warn(logMessage);
     } else {
       console.error(logMessage);
     }
+  }
+
+  // 2. Proxy fallback
+  if (!proxyUrl || proxyUrl.trim() === "") {
+    console.warn(
+      "[RSS Dashboard] No CORS proxy configured. Cannot retry blocked fetch.",
+    );
     return {
       content: "",
-      failureType: restricted ? "restricted" : "network",
+      failureType: directRestricted ? "restricted" : "network",
     };
   }
+
+  const proxyCandidates: string[] = [];
+  if (proxyUrl === "auto") {
+    proxyCandidates.push("https://r.jina.ai/");
+    proxyCandidates.push("https://api.allorigins.win/raw?url=");
+  } else {
+    proxyCandidates.push(proxyUrl.trim());
+  }
+
+  let lastProxyRestricted = false;
+
+  for (const proxy of proxyCandidates) {
+    try {
+      const isJina = proxy.includes("r.jina.ai");
+      const proxyTarget = isJina
+        ? (proxy.endsWith("/") ? `${proxy}${url}` : `${proxy}/${url}`)
+        : proxy.replace(/\/$/, "") + encodeURIComponent(url);
+
+      const headers: Record<string, string> = {
+        ...DEFAULT_HEADERS,
+        ...(isJina ? { "X-Return-Format": "html" } : {}),
+      };
+
+      const proxyResponse = await robustFetchDetailed(proxyTarget, {
+        headers,
+      });
+      const proxyHtml = proxyResponse?.text || "";
+      const status = proxyResponse?.status ?? 0;
+
+      if (
+        !proxyHtml ||
+        isBlockedResponse(proxyHtml) ||
+        isRestrictedStatus(status)
+      ) {
+        if (isRestrictedStatus(status) || isRestrictedSignal(proxyHtml)) {
+          lastProxyRestricted = true;
+        }
+        console.warn(
+          `[RSS Dashboard] Proxy fetch also returned blocked/empty response for ${url} via ${proxy}.`,
+        );
+        continue;
+      }
+
+      const parsed = parseArticleContent(proxyHtml, url);
+      if (parsed && parsed.trim().length > 100) {
+        console.debug(
+          `[RSS Dashboard] Proxy fetch succeeded for ${url} (${proxyHtml.length} chars).`,
+        );
+        return {
+          content: parsed,
+          failureType: "none",
+        };
+      }
+    } catch (proxyErr) {
+      const msg =
+        proxyErr instanceof Error ? proxyErr.message : String(proxyErr);
+      console.warn(
+        `[RSS Dashboard] Proxy error with ${proxy} for ${url}:`,
+        msg,
+      );
+    }
+  }
+
+  return {
+    content: "",
+    failureType:
+      directRestricted || lastProxyRestricted ? "restricted" : "network",
+  };
 }
 
 /**

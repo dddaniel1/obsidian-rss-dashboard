@@ -1,4 +1,4 @@
-import { App, type Component, setIcon, TFile } from "obsidian";
+import { App, type Component, Notice, setIcon, TFile } from "obsidian";
 import { sanitizeAndAppendHtml } from "../utils/safe-html";
 import { scheduleProcessMathElements } from "../utils/math-rendering";
 import { FeedItem, RssDashboardSettings } from "../types/types";
@@ -46,6 +46,10 @@ export interface ArticleRendererOptions {
     duration: number,
     flush?: boolean,
   ) => void;
+  onFullArticleStateChange?: (
+    isFullArticle: boolean,
+    isLoading: boolean,
+  ) => void;
 }
 
 export class ArticleRenderer {
@@ -69,6 +73,10 @@ export class ArticleRenderer {
     duration: number,
     flush?: boolean,
   ) => void;
+  private onFullArticleStateChange?: (
+    isFullArticle: boolean,
+    isLoading: boolean,
+  ) => void;
 
   private podcastPlayer: PodcastPlayer | null = null;
   private videoPlayer: VideoPlayer | null = null;
@@ -80,6 +88,8 @@ export class ArticleRenderer {
   private currentContentIsFullArticle = false;
   private currentFullContentFailureType: FullArticleFetchFailureType = "none";
   private lastRestrictedNoticeGuid: string | null = null;
+  private lastContainer: HTMLElement | null = null;
+  private fullArticleLoading = false;
 
   constructor(options: ArticleRendererOptions) {
     this.app = options.app;
@@ -89,6 +99,19 @@ export class ArticleRenderer {
     this.onArticleUpdate = options.onArticleUpdate;
     this.onOpenSavedArticle = options.onOpenSavedArticle;
     this.onPlaybackProgress = options.onPlaybackProgress;
+    this.onFullArticleStateChange = options.onFullArticleStateChange;
+  }
+
+  public isContentFullArticle(): boolean {
+    return this.currentContentIsFullArticle;
+  }
+
+  public isFullArticleLoading(): boolean {
+    return this.fullArticleLoading;
+  }
+
+  public getCurrentItem(): FeedItem | null {
+    return this.currentItem;
   }
 
   public async render(
@@ -96,6 +119,7 @@ export class ArticleRenderer {
     item: FeedItem,
     relatedItems: FeedItem[] = [],
   ): Promise<void> {
+    this.lastContainer = container;
     if (this.currentItem?.guid !== item.guid) {
       this.lastRestrictedNoticeGuid = null;
     }
@@ -152,6 +176,10 @@ export class ArticleRenderer {
       this.currentDisplayTitle = displayTitle || undefined;
       this.currentContentIsFullArticle = hasFullArticleContent;
       await this.displayArticle(container, item, fullContent);
+      this.onFullArticleStateChange?.(
+        this.currentContentIsFullArticle,
+        this.fullArticleLoading,
+      );
     }
   }
 
@@ -376,6 +404,8 @@ export class ArticleRenderer {
 
     if (item.restrictedReason) {
       this.renderRestrictedBanner(container, item);
+    } else if (this.shouldRenderExcerptBanner(item)) {
+      this.renderExcerptBanner(container, item);
     } else if (this.shouldRenderVideoSourceBanner(item)) {
       this.renderVideoSourceBanner(container, item);
     }
@@ -398,9 +428,74 @@ export class ArticleRenderer {
       return;
     }
 
-    const link = banner.createEl("a", {
+    const actions = banner.createDiv({
+      cls: "rss-reader-banner-actions",
+    });
+
+    const loadButton = actions.createEl("button", {
+      cls: "rss-reader-banner-action-btn rss-reader-load-fulltext-btn mod-cta",
+      text: "Load full text",
+    });
+    loadButton.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.loadFullArticle(container);
+    });
+
+    const link = actions.createEl("a", {
       cls: "rss-reader-paywall-banner-link",
       text: RESTRICTED_ARTICLE_LINK_TEXT,
+      href: item.link,
+    });
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+  }
+
+  private shouldRenderExcerptBanner(item: FeedItem): boolean {
+    if (
+      this.currentContentIsFullArticle ||
+      !item.link ||
+      item.mediaType === "video" ||
+      item.mediaType === "podcast" ||
+      isLikelyVideoItem(item) ||
+      this.isTweetLikeItem(item)
+    ) {
+      return false;
+    }
+    const textLen = (item.content || item.description || "")
+      .replace(/<[^>]*>/g, "")
+      .trim().length;
+    return textLen < 1500;
+  }
+
+  private renderExcerptBanner(container: HTMLElement, item: FeedItem): void {
+    const banner = container.createDiv({
+      cls: "rss-reader-inline-banner rss-reader-excerpt-banner",
+    });
+    banner.createDiv({
+      cls: "rss-reader-excerpt-banner-text",
+      text: "Showing feed summary. Full article not loaded.",
+    });
+
+    if (!item.link) {
+      return;
+    }
+
+    const actions = banner.createDiv({
+      cls: "rss-reader-banner-actions",
+    });
+
+    const loadButton = actions.createEl("button", {
+      cls: "rss-reader-banner-action-btn rss-reader-load-fulltext-btn mod-cta",
+      text: "Load full text",
+    });
+    loadButton.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.loadFullArticle(container);
+    });
+
+    const link = actions.createEl("a", {
+      cls: "rss-reader-paywall-banner-link rss-reader-excerpt-banner-link",
+      text: "Open original",
       href: item.link,
     });
     link.target = "_blank";
@@ -666,6 +761,83 @@ export class ArticleRenderer {
 
   private lastFullArticleFetchWasRestricted(): boolean {
     return this.currentFullContentFailureType === "restricted";
+  }
+
+  public async loadFullArticle(
+    targetContainer?: HTMLElement,
+  ): Promise<boolean> {
+    const item = this.currentItem;
+    const container = targetContainer || this.lastContainer;
+    if (!item || !container || this.fullArticleLoading) {
+      return false;
+    }
+
+    if (!item.link) {
+      new Notice("No URL available to fetch full article.");
+      return false;
+    }
+
+    this.fullArticleLoading = true;
+    this.onFullArticleStateChange?.(this.currentContentIsFullArticle, true);
+    this.updateBannerButtonsLoading(container, true);
+    const loadingNotice = new Notice("Fetching full article...", 0);
+
+    try {
+      const proxyUrl =
+        this.settings.corsProxyEnabled && this.settings.corsProxyUrl
+          ? this.settings.corsProxyUrl
+          : undefined;
+
+      const result = await fetchFullArticleContentWithOutcome(
+        item.link,
+        proxyUrl,
+      );
+      loadingNotice.hide();
+
+      if (this.hasMeaningfulArticleContent(result.content)) {
+        item.restrictedReason = undefined;
+        this.currentContentIsFullArticle = true;
+        this.currentFullContent = result.content;
+        const displayTitle = this.extractDisplayTitleFromHtml(result.content);
+        if (displayTitle) {
+          this.currentDisplayTitle = displayTitle;
+        }
+
+        container.empty();
+        this.renderArticle(container, item, result.content);
+        this.onFullArticleStateChange?.(true, false);
+        new Notice("Full article loaded.");
+        return true;
+      } else {
+        if (result.failureType === "restricted") {
+          item.restrictedReason = RESTRICTED_ARTICLE_REASON;
+        }
+        new Notice("Unable to extract full article text.");
+        return false;
+      }
+    } catch (e) {
+      loadingNotice.hide();
+      console.error("[RSS Dashboard] Failed to load full article:", e);
+      new Notice("Error loading full article.");
+      return false;
+    } finally {
+      this.fullArticleLoading = false;
+      this.onFullArticleStateChange?.(this.currentContentIsFullArticle, false);
+      this.updateBannerButtonsLoading(container, false);
+    }
+  }
+
+  private updateBannerButtonsLoading(
+    container: HTMLElement,
+    loading: boolean,
+  ): void {
+    const buttons = container.querySelectorAll<HTMLButtonElement>(
+      ".rss-reader-load-fulltext-btn",
+    );
+    buttons.forEach((btn) => {
+      btn.disabled = loading;
+      btn.setText(loading ? "Loading full text..." : "Load full text");
+    });
   }
 
   private hasMeaningfulArticleContent(html: string): boolean {

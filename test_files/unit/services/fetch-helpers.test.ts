@@ -18,6 +18,7 @@ import { robustFetchDetailed } from "../../../src/utils/platform-utils";
 import {
   isBlockedResponse,
   isRestrictedSignal,
+  parseArticleContent,
   fetchWithProxyFallback,
   fetchWithProxyFallbackDetailed,
 } from "../../../src/utils/fetch-helpers";
@@ -101,6 +102,20 @@ ${"<p>placeholder content to make this long enough to pass length check</p>".rep
   </article>
 </body></html>`;
     expect(isBlockedResponse(html)).toBe(false);
+  });
+
+  it("does not treat large article pages mentioning paywall or subscription as blocked", () => {
+    const html = `<!DOCTYPE html><html><head><title>UX Design: Real Article</title></head>
+<body>
+  <article>
+    <h1>Design Process</h1>
+    <p>This is a comprehensive article about design systems and workflows. It mentions paywalls and subscriptions in passing.</p>
+    <p>${"Real in-depth discussion about externalizing design process to win back your time. ".repeat(20)}</p>
+  </article>
+  <footer><p>This article is behind a member paywall or subscription.</p></footer>
+</body></html>`;
+    expect(isBlockedResponse(html)).toBe(false);
+    expect(parseArticleContent(html).length).toBeGreaterThan(200);
   });
 });
 

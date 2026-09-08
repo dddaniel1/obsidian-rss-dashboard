@@ -123,6 +123,8 @@ export class ReaderView extends ItemView {
   private translateButton: HTMLElement | null = null;
   private translationActive = false;
   private translationInFlight = false;
+  private fullTextButton: HTMLElement | null = null;
+  private fullArticleLoading = false;
   private lastRestrictedNoticeGuid: string | null = null;
 
   private readerFormatPortal: { close: (flushSave: boolean) => void } | null =
@@ -945,6 +947,29 @@ export class ReaderView extends ItemView {
     this.translateButton = null;
     this.ensureTranslateButton(actions);
 
+    // Full article button (Readability)
+    this.fullTextButton = actions.createDiv({
+      cls: "rss-reader-action-button rss-reader-fulltext-button",
+      attr: {
+        title: "Load full article",
+        "aria-label": "Load full article",
+        role: "button",
+        tabindex: "0",
+      },
+    });
+    setIcon(this.fullTextButton, "book-open");
+    const handleFullTextClick = (e: Event) => {
+      e.stopPropagation();
+      void this.loadFullArticle();
+    };
+    this.fullTextButton.addEventListener("click", handleFullTextClick);
+    this.fullTextButton.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        handleFullTextClick(e);
+      }
+    });
+
     // Open in browser button
     const browserButton = actions.createDiv({
       cls: "rss-reader-action-button",
@@ -1507,6 +1532,7 @@ export class ReaderView extends ItemView {
       this.currentContentIsFullArticle = hasFullArticleContent;
       this.syncReaderTitle();
       await this.displayArticle(item, fullContent);
+      this.updateFullTextButtonState();
     }
   }
 
@@ -1906,6 +1932,7 @@ export class ReaderView extends ItemView {
         displayTitle,
         heroSlot,
         shouldStripHeadline,
+
         isNitter,
         descriptionHtml,
       );
@@ -1915,6 +1942,8 @@ export class ReaderView extends ItemView {
       this.renderRestrictedBanner(item);
     } else if (this.shouldRenderVideoSourceBanner(item)) {
       this.renderVideoSourceBanner(item);
+    } else if (this.shouldRenderExcerptBanner(item)) {
+      this.renderExcerptBanner(item);
     }
 
     this.translationActive = false;
@@ -2063,9 +2092,72 @@ export class ReaderView extends ItemView {
       return;
     }
 
-    const link = banner.createEl("a", {
+    const actions = banner.createDiv({
+      cls: "rss-reader-banner-actions",
+    });
+
+    const loadButton = actions.createEl("button", {
+      cls: "rss-reader-banner-action-btn rss-reader-load-fulltext-btn mod-cta",
+      text: "Load full text",
+    });
+    loadButton.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.loadFullArticle();
+    });
+
+    const link = actions.createEl("a", {
       cls: "rss-reader-paywall-banner-link",
       text: RESTRICTED_ARTICLE_LINK_TEXT,
+      href: item.link,
+    });
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+  }
+
+  private shouldRenderExcerptBanner(item: FeedItem): boolean {
+    if (
+      this.currentContentIsFullArticle ||
+      !item.link ||
+      this.isVideoMediaItem(item) ||
+      this.isTweetLikeItem(item)
+    ) {
+      return false;
+    }
+    const textLen = (item.content || item.description || "")
+      .replace(/<[^>]*>/g, "")
+      .trim().length;
+    return textLen < 1500;
+  }
+
+  private renderExcerptBanner(item: FeedItem): void {
+    const banner = this.readingContainer.createDiv({
+      cls: "rss-reader-inline-banner rss-reader-excerpt-banner",
+    });
+    banner.createDiv({
+      cls: "rss-reader-excerpt-banner-text",
+      text: "Showing feed summary. Full article not loaded.",
+    });
+
+    if (!item.link) {
+      return;
+    }
+
+    const actions = banner.createDiv({
+      cls: "rss-reader-banner-actions",
+    });
+
+    const loadButton = actions.createEl("button", {
+      cls: "rss-reader-banner-action-btn rss-reader-load-fulltext-btn mod-cta",
+      text: "Load full text",
+    });
+    loadButton.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.loadFullArticle();
+    });
+
+    const link = actions.createEl("a", {
+      cls: "rss-reader-paywall-banner-link rss-reader-excerpt-banner-link",
+      text: "Open original",
       href: item.link,
     });
     link.target = "_blank";
@@ -3197,6 +3289,102 @@ export class ReaderView extends ItemView {
     return this.currentFullContentFailureType === "restricted";
   }
 
+  public async loadFullArticle(): Promise<boolean> {
+    const item = this.currentItem;
+    if (!item || this.fullArticleLoading) {
+      return false;
+    }
+
+    if (!item.link) {
+      new Notice("No URL available to fetch full article.");
+      return false;
+    }
+
+    this.fullArticleLoading = true;
+    this.updateFullTextButtonState();
+    this.updateBannerButtonsLoading(true);
+
+    const loadingNotice = new Notice("Fetching full article...", 0);
+
+    try {
+      const proxyUrl =
+        this.settings.corsProxyEnabled && this.settings.corsProxyUrl
+          ? this.settings.corsProxyUrl
+          : undefined;
+
+      const result = await fetchFullArticleContentWithOutcome(
+        item.link,
+        proxyUrl,
+      );
+      loadingNotice.hide();
+
+      if (this.hasMeaningfulArticleContent(result.content)) {
+        item.restrictedReason = undefined;
+        this.currentContentIsFullArticle = true;
+        this.currentFullContent = result.content;
+        const displayTitle = this.extractDisplayTitleFromHtml(result.content);
+        if (displayTitle) {
+          this.currentDisplayTitle = displayTitle;
+          this.syncReaderTitle();
+        }
+
+        if (this.readingContainer) {
+          this.readingContainer.empty();
+        }
+        this.renderArticle(item, result.content);
+        this.updateFullTextButtonState();
+        new Notice("Full article loaded.");
+        return true;
+      } else {
+        if (result.failureType === "restricted") {
+          item.restrictedReason = RESTRICTED_ARTICLE_REASON;
+        }
+        new Notice("Unable to extract full article text.");
+        return false;
+      }
+    } catch (e) {
+      loadingNotice.hide();
+      console.error("[RSS Dashboard] Failed to load full article:", e);
+      new Notice("Error loading full article.");
+      return false;
+    } finally {
+      this.fullArticleLoading = false;
+      this.updateFullTextButtonState();
+      this.updateBannerButtonsLoading(false);
+    }
+  }
+
+  private updateFullTextButtonState(): void {
+    if (!this.fullTextButton) return;
+    if (this.fullArticleLoading) {
+      this.fullTextButton.addClass("is-loading");
+      this.fullTextButton.setAttribute("title", "Loading full article...");
+      this.fullTextButton.setAttribute("aria-label", "Loading full article...");
+      return;
+    }
+    this.fullTextButton.removeClass("is-loading");
+    if (this.currentContentIsFullArticle) {
+      this.fullTextButton.addClass("is-loaded");
+      this.fullTextButton.setAttribute("title", "Reload full article");
+      this.fullTextButton.setAttribute("aria-label", "Reload full article");
+    } else {
+      this.fullTextButton.removeClass("is-loaded");
+      this.fullTextButton.setAttribute("title", "Load full article");
+      this.fullTextButton.setAttribute("aria-label", "Load full article");
+    }
+  }
+
+  private updateBannerButtonsLoading(loading: boolean): void {
+    if (!this.readingContainer) return;
+    const buttons = this.readingContainer.querySelectorAll<HTMLButtonElement>(
+      ".rss-reader-load-fulltext-btn",
+    );
+    buttons.forEach((btn) => {
+      btn.disabled = loading;
+      btn.setText(loading ? "Loading full text..." : "Load full text");
+    });
+  }
+
   private toggleReadStatus(): void {
     if (!this.currentItem) return;
     const nextRead = !this.currentItem.read;
@@ -3710,6 +3898,8 @@ export class ReaderView extends ItemView {
         isSaved ? "Click to open saved article" : "Save article",
       );
     }
+
+    this.updateFullTextButtonState();
   }
 
   private resetTitle(): void {
