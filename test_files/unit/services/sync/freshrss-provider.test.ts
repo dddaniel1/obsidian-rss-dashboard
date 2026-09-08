@@ -42,6 +42,58 @@ describe("FreshRSS provider", () => {
     expect(body.get("T")).toBe("token");
   });
 
+  it("keeps audio enclosure URLs so podcast feeds stay playable", async () => {
+    const { provider } = setup([
+      { status: 200, text: "Auth=x" },
+      {
+        status: 200,
+        text: JSON.stringify({
+          items: [
+            {
+              id: "1687580273",
+              title: "Episode 1",
+              published: 1710000000,
+              origin: { streamId: "feed/1" },
+              categories: ["user/-/state/com.google/reading-list"],
+              alternate: [{ href: "https://example.com/episode-1" }],
+              summary: { content: "<p>Shownotes</p>" },
+              enclosure: [{ href: "https://audio.example/episode-1.mp3", type: "audio/mpeg" }],
+            },
+          ],
+        }),
+      },
+    ]);
+    await provider.login("u", "p");
+    const page = await provider.getArticles({});
+    expect(page.articles[0].audioUrl).toBe("https://audio.example/episode-1.mp3");
+  });
+
+  it("keeps video enclosure URLs so video feeds stay playable", async () => {
+    const { provider } = setup([
+      { status: 200, text: "Auth=x" },
+      {
+        status: 200,
+        text: JSON.stringify({
+          items: [
+            {
+              id: "1687580274",
+              title: "Video 1",
+              published: 1710000001,
+              origin: { streamId: "feed/1" },
+              categories: ["user/-/state/com.google/reading-list"],
+              alternate: [{ href: "https://example.com/video-1" }],
+              summary: { content: "<p>Description</p>" },
+              enclosure: [{ href: "https://media.example/video-1.mp4", type: "video/mp4" }],
+            },
+          ],
+        }),
+      },
+    ]);
+    await provider.login("u", "p");
+    const page = await provider.getArticles({});
+    expect(page.articles[0].videoUrl).toBe("https://media.example/video-1.mp4");
+  });
+
   it("does not expose server response bodies or transport secrets in errors", async () => {
     const { provider } = setup([{ status: 401, text: "private-password" }]);
     await expect(provider.login("u", "private-password")).rejects.toThrow("Authentication failed");

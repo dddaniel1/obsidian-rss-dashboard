@@ -1,8 +1,8 @@
-﻿# FreshRSS synchronization preview
+# FreshRSS synchronization preview
 
-This branch adds an independent FreshRSS library through the Google Reader API.
+This branch adds FreshRSS synchronization through the Google Reader API, with Local / FreshRSS selection inside the existing RSS Dashboard.
 Open Settings > RSS Dashboard > Sync to connect using the API address, username,
-and dedicated API password. The command "Open FreshRSS library" opens the library.
+and dedicated API password. The command "Open FreshRSS library" selects FreshRSS in the existing dashboard. Both sources use the existing sidebar, article list, and reader; local subscriptions remain separate.
 
 The current preview includes flat folders, subscriptions, article download,
 read/starred state synchronization, local tags and saved notes, durable pending
@@ -30,3 +30,5 @@ credentials. Disconnect clears the token from both recovery slots.
   complete interactive desktop/mobile verification, concurrent structural
   operations, cancellation, and remote article-deletion cases still require
   validation and hardening. Do not treat the preview as fully accepted.
+
+Source-switch integration: production build passed; full suite 1750 passed with the same pre-existing locale-dependent article-saver failure. Switching sources and account-scoped article writes have focused regression coverage.

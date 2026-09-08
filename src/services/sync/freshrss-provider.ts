@@ -131,6 +131,16 @@ export class FreshRssProvider implements SyncProvider {
       const origin = object(article.origin);
       const content = article.summary === undefined ? "" : optionalString(object(article.summary).content);
       const alternate = article.alternate === undefined ? [] : array(article.alternate);
+      const enclosures = article.enclosure === undefined ? [] : array(article.enclosure).map(object);
+      const enclosureUrl = (kind: "audio/" | "video/"): string | undefined => {
+        for (const item of enclosures) {
+          if (item.href === undefined) continue;
+          if (optionalString(item.type).startsWith(kind)) return string(item.href);
+        }
+        return undefined;
+      };
+      const audioUrl = enclosureUrl("audio/");
+      const videoUrl = enclosureUrl("video/");
       const published = article.published;
       if (typeof published !== "number" || !Number.isFinite(published)) throw new SyncError("Invalid article date", "invalid");
       return {
@@ -138,6 +148,8 @@ export class FreshRssProvider implements SyncProvider {
         title: optionalString(article.title), link: alternate.length ? string(object(alternate[0]).href) : "",
         content, published, read: states.includes(STATE + "read"), starred: states.includes(STATE + "starred"),
         author: optionalString(article.author),
+        audioUrl,
+        videoUrl,
       };
     });
     return { articles, cursor: cursor(data.continuation) };

@@ -2,6 +2,8 @@
 
 ### Features
 
+- Added Local / FreshRSS selection in the existing dashboard, sharing its sidebar, article list, and reader while keeping local subscriptions separate from synchronized data.
+
 - Added a paged podcast playlist that renders a five-episode window around the active episode, with order-relative browsing controls, a return-to-current action for large feeds, and placeholder-first artwork loading that avoids empty or broken-image boxes. This should alleviate performance issues for feeds with many episodes. [GH Issue #183](https://github.com/amatya-aditya/obsidian-rss-dashboard/issues/183)
 - Added opt-in local caching for Dashboard Card and Feed preview images, with a 1 MiB per-image limit, a synchronized 1–1024 MiB slider/input or unlimited aggregate cap, cache management controls, remote-image fallback, cache warming after feed additions and OPML/background imports, protection against refreshes overwriting Discover feeds that are still hydrating, and automatic cache cleanup when all feeds are deleted. [GH Issue #177](https://github.com/amatya-aditya/obsidian-rss-dashboard/issues/177)
 - Added a Stop button on the All feeds sidebar row during global refreshes, allowing users to cancel an in-progress refresh, including when only one eligible feed remains. Cancelled feeds do not advance their refresh timestamps, and in-progress fetches are aborted via an AbortSignal. Failed-feed retries and folder/selected/tag/due refreshes remain non-cancellable. [GH Issue #173](https://github.com/amatya-aditya/obsidian-rss-dashboard/issues/173)
@@ -15,6 +17,7 @@
 
 ### Fixes
 
+- Fixed FreshRSS-synchronized podcast and video feeds being shown as plain articles by keeping media enclosures and marking those items as podcast or video so the reader renders the built-in players.
 - Fixed dashboard header Mark all read/unread controls so they update and persist the stored articles in the current filtered view. [GH Issue #185](https://github.com/amatya-aditya/obsidian-rss-dashboard/issues/185)
 - Removed duplicate close controls from mobile Dashboard and Discover sidebars, retaining Obsidian's standard modal header close button.
 - Standardized sidebar and mobile navigation scrolling on native Obsidian scrollbars, removing the retired scrollbar-visibility preference and custom scrollbar styling in order to improve Community Plugin compliance score.

@@ -52,6 +52,10 @@ export class ArticleRenderer {
   private app: App;
   private component: Component;
   private settings: RssDashboardSettings;
+
+  public setSourceSettings(settings: RssDashboardSettings): void {
+    this.settings = settings;
+  }
   private onArticleSave: (item: FeedItem) => void;
   private onArticleUpdate: (
     item: FeedItem,

@@ -1,6 +1,7 @@
+import { remoteArticleId } from "./src/services/sync/dashboard-sync-source";
 import { initializeSyncFeature } from "./src/services/sync/sync-feature";
 import type { SyncRuntime } from "./src/services/sync/sync-runtime";
-import { SYNC_VIEW_TYPE } from "./src/views/sync-view";
+
 import {
   App,
   Plugin,
@@ -275,14 +276,36 @@ export default class RssDashboardPlugin extends Plugin {
   syncRuntime?: SyncRuntime;
 
   async openSyncView(): Promise<void> {
-    const existing = this.app.workspace.getLeavesOfType(SYNC_VIEW_TYPE)[0];
+    const existing = this.app.workspace.getLeavesOfType(RSS_DASHBOARD_VIEW_TYPE)[0];
     const leaf = existing ?? this.app.workspace.getLeaf("tab");
-    await leaf.setViewState({ type: SYNC_VIEW_TYPE, active: true });
+    await leaf.setViewState({ type: RSS_DASHBOARD_VIEW_TYPE, active: true });
+    if (leaf.view instanceof RssDashboardView) await leaf.view.setLibrarySource("freshrss");
     await this.app.workspace.revealLeaf(leaf);
   }
 
   openSyncSettings(): void {
     void this.openSettingsToTab("Sync");
+  }
+
+  private async updateRemoteArticle(guid: string, updates: Partial<FeedItem>): Promise<boolean> {
+    const runtime = this.syncRuntime;
+    const state = runtime?.service?.snapshot();
+    const id = state ? remoteArticleId(guid, state.accountId) : undefined;
+    if (!runtime || !state || !id || !state.articles[id]) return false;
+    await runtime.perform(async (service) => {
+      for (const field of ["read", "starred"] as const) {
+        if (updates[field] !== undefined && updates[field] !== state.articles[id][field]) {
+          await service.setArticleState(id, field, !!updates[field]);
+        }
+      }
+      const local: Partial<FeedItem> = {};
+      for (const field of ["tags", "saved", "savedFilePath", "playbackProgress"] as const) {
+        if (field in updates) Object.assign(local, { [field]: updates[field] });
+      }
+      await service.updateLocalArticle(id, local);
+    });
+    await this.syncReaderArticleUpdate(guid, updates);
+    return true;
   }
 
   async saveSyncArticle(id: string): Promise<void> {
@@ -1357,6 +1380,7 @@ export default class RssDashboardPlugin extends Plugin {
   }
 
   private async onArticleSaved(item: FeedItem): Promise<void> {
+    if (await this.updateRemoteArticle(item.guid, { saved: true, savedFilePath: item.savedFilePath, tags: item.tags })) return;
     if (item.feedUrl) {
       const feed = this.settings.feeds.find((f) => f.url === item.feedUrl);
       if (feed) {
@@ -1411,6 +1435,7 @@ export default class RssDashboardPlugin extends Plugin {
     updates: Partial<FeedItem>,
     shouldRerender?: boolean,
   ): Promise<void> {
+    if (await this.updateRemoteArticle(item.guid, updates)) return;
     const resolvedFeed =
       this.settings.feeds.find((f) => f.url === item.feedUrl) ||
       this.settings.feeds.find((f) =>
@@ -1630,6 +1655,7 @@ export default class RssDashboardPlugin extends Plugin {
     updates: Partial<FeedItem>,
     shouldRefreshView = true,
   ) {
+    if (await this.updateRemoteArticle(articleGuid, updates)) return;
     const feed = this.settings.feeds.find((f) => f.url === feedUrl);
     if (!feed) return;
 
@@ -2618,6 +2644,13 @@ export default class RssDashboardPlugin extends Plugin {
     flush = false,
     sourceItem?: FeedItem,
   ): void {
+    const syncState = this.syncRuntime?.service?.snapshot();
+    if (syncState && remoteArticleId(itemGuid, syncState.accountId)) {
+      if (this.settings.media.rememberPlaybackProgress) {
+        void this.updateRemoteArticle(itemGuid, { playbackProgress: { position, duration, lastUpdated: Date.now() } }).catch(() => new Notice("Could not save playback progress"));
+      }
+      return;
+    }
     if (!this.settings.media.rememberPlaybackProgress) {
       return;
     }

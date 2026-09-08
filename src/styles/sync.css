@@ -42,3 +42,22 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.workspace-leaf-content .rss-dashboard-container.rss-dashboard-has-source {
+  display: flex;
+  flex-direction: column;
+}
+.rss-dashboard-has-source > .rss-dashboard-layout {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+.rss-dashboard-source-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+  align-items: center;
+  padding: var(--size-4-2) var(--size-4-3);
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}

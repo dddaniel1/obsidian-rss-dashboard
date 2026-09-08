@@ -87,6 +87,10 @@ export class ReaderView extends ItemView {
   private titleElement!: HTMLElement;
   private articleSaver: ArticleSaver;
   private settings: RssDashboardSettings;
+
+  public setSourceSettings(settings: RssDashboardSettings): void {
+    this.settings = settings;
+  }
   private onArticleSave: (item: FeedItem) => void;
   private onArticleUpdate: (
     item: FeedItem,

@@ -65,4 +65,27 @@ describe("Sync service", () => {
     await service.synchronize(provider());
     expect(service.snapshot().folders.find((folder) => folder.name === "中文")).toMatchObject({ pending: true });
   });
+
+  it("re-fetches the full stream once after upgrade so media enclosures backfill", async () => {
+    let durable = emptySyncState("a");
+    // A pre-enclosure state: incremental sync finished, but audio URLs are absent.
+    durable.articles["123"] = { id: "123", feedId: "feed/1", title: "Article", link: "", content: "", published: 1, read: false, starred: false, author: "" };
+    durable.contentSince = 1000;
+    let requestedSince: number | undefined;
+    const service = new SyncService(durable, async (state) => { durable = state; });
+    await service.synchronize(provider({
+      getArticles: (query) => {
+        requestedSince = query.since;
+        return Promise.resolve({ articles: [{ id: "123", feedId: "feed/1", title: "Article", link: "https://example.com/1", content: "Hello", published: 1, read: false, starred: false, author: "", audioUrl: "https://audio.example/1.mp3" }] });
+      },
+    }));
+    expect(requestedSince).toBeUndefined();
+    expect(durable.articles["123"].audioUrl).toBe("https://audio.example/1.mp3");
+    expect(durable.mediaEnclosureBackfill).toBe(true);
+    // After the backfill, incremental syncing resumes.
+    const expectedSince = durable.contentSince;
+    const restored = new SyncService(durable, async (state) => { durable = state; });
+    await restored.synchronize(provider({ getArticles: (query) => { requestedSince = query.since; return Promise.resolve({ articles: [] }); } }));
+    expect(requestedSince).toBe(expectedSince);
+  });
 });

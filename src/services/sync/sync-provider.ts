@@ -19,6 +19,8 @@ export interface RemoteArticle {
   read: boolean;
   starred: boolean;
   author: string;
+  audioUrl?: string;
+  videoUrl?: string;
 }
 export interface ArticlePage {
   articles: RemoteArticle[];

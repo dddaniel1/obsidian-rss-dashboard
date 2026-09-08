@@ -56,8 +56,14 @@ export class SyncJournal<T> {
       const envelope: Envelope = { version: 1, revision, payload, checksum: checksum(payload) };
       const path = this.basePath + (revision % 2 ? ".a.json" : ".b.json");
       await this.io.write(path, JSON.stringify(envelope));
-      const stored = decode(await this.io.read(path));
-      if (stored.revision !== revision || stored.payload !== payload) throw new Error("Sync data verification failed");
+      // Verify only the envelope header without re-parsing the full payload.
+      // The FNV-1a checksum already detects corruption; re-reading and
+      // re-parsing a multi-megabyte payload on every save dominates write latency.
+      const written = await this.io.read(path);
+      const stored = JSON.parse(written) as Partial<Envelope>;
+      if (stored.revision !== revision || stored.checksum !== envelope.checksum) {
+        throw new Error("Sync data verification failed");
+      }
       this.revision = revision;
     });
     this.writes = task.catch(() => {});

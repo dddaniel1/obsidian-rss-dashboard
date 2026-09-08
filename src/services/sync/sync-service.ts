@@ -13,13 +13,18 @@ export interface SyncState {
   contentCursor?: string;
   contentSince?: number;
   contentStartedAt?: number;
+  /** Set once older states have been re-fetched to backfill media enclosures. */
+  mediaEnclosureBackfill?: boolean;
   lastSuccess?: number;
+  /** Number of read+unstarred articles kept per feed after pruning. */
+  cachedReadArticlesPerFeed?: number;
 }
 export function emptySyncState(accountId: string): SyncState {
   return { version: 1, accountId, folders: [], subscriptions: [], articles: {}, operations: [], conflicts: [] };
 }
 type OperationInput = SyncOperation extends infer T ? T extends SyncOperation ? Omit<T, "id" | "accountId"> : never : never;
 const LABEL = "user/-/label/";
+const DEFAULT_CACHED_READ_PER_FEED = 20;
 
 export class SyncService {
   private state: SyncState;
@@ -56,11 +61,61 @@ export class SyncService {
     return state;
   }
 
+  /**
+   * Prune cached articles to keep the state file small.
+   * Keeps unread, starred, saved, and the newest N read articles per feed.
+   */
+  private pruneArticles(state: SyncState): void {
+    const limit = state.cachedReadArticlesPerFeed ?? DEFAULT_CACHED_READ_PER_FEED;
+    const totalLimit = limit * 2;
+    const byFeed = new Map<string, (RemoteArticle & ArticleUserState)[]>();
+    for (const article of Object.values(state.articles)) {
+      const list = byFeed.get(article.feedId) ?? [];
+      list.push(article);
+      byFeed.set(article.feedId, list);
+    }
+    for (const [feedId, articles] of byFeed) {
+      const keep = new Set<string>();
+      const unread = articles.filter((a) => !a.read);
+      const recentUnread = unread
+        .sort((a, b) => b.published - a.published)
+        .slice(0, limit);
+      for (const a of recentUnread) keep.add(a.id);
+      const read = articles.filter((a) => a.read);
+      const recentRead = read
+        .sort((a, b) => b.published - a.published)
+        .slice(0, limit);
+      for (const a of recentRead) keep.add(a.id);
+      // Hard cap: if still over totalLimit, keep only newest
+      if (keep.size > totalLimit) {
+        const all = articles
+          .filter((a) => keep.has(a.id))
+          .sort((a, b) => b.published - a.published)
+          .slice(0, totalLimit);
+        keep.clear();
+        for (const a of all) keep.add(a.id);
+      }
+      for (const a of articles) {
+        if (a.starred || a.saved || keep.has(a.id)) continue;
+        delete state.articles[a.id];
+      }
+      void feedId;
+    }
+  }
+
   private change(edit: (state: SyncState) => void): Promise<void> {
     const task = this.writes.then(async () => {
-      const next = structuredClone(this.state);
+      // Shallow-copy the shell; articles are keyed by ID so the map reference
+      // can be copied without cloning every article body.
+      const next: SyncState = {
+        ...this.state,
+        folders: [...this.state.folders],
+        subscriptions: [...this.state.subscriptions],
+        operations: [...this.state.operations],
+        articles: { ...this.state.articles },
+      };
       edit(next);
-      await this.persist(structuredClone(next));
+      await this.persist(next);
       this.state = next;
     });
     this.writes = task.catch(() => {});
@@ -203,6 +258,12 @@ export class SyncService {
       state.folders = [...folders, ...state.folders.filter((folder) => folder.pending && !folders.some((remote) => remote.id === folder.id))];
       state.subscriptions = feeds;
       state.contentStartedAt ??= Math.floor(Date.now() / 1000);
+      if (!state.mediaEnclosureBackfill) {
+        // States saved before enclosure capture lack media URLs; re-fetch once.
+        state.contentSince = undefined;
+        state.mediaEnclosureBackfill = true;
+      }
+      state.cachedReadArticlesPerFeed ??= DEFAULT_CACHED_READ_PER_FEED;
     });
     const seen = new Set<string>();
     do {
@@ -234,6 +295,7 @@ export class SyncService {
         if (op.kind === "article-state" && state.articles[op.articleId]) state.articles[op.articleId][op.field] = op.value;
       }
       state.lastSuccess = Date.now();
+      this.pruneArticles(state);
     });
   }
 

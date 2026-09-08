@@ -1,3 +1,4 @@
+import { DashboardSyncSource } from "../services/sync/dashboard-sync-source";
 import {
   ItemView,
   WorkspaceLeaf,
@@ -71,6 +72,10 @@ type SidebarKeyboardController = {
 export class RssDashboardView extends ItemView {
   private static readonly CARD_LAYOUT_RELAYOUT_DELAY_MS = 90;
   private static readonly CARD_LAYOUT_SAVE_DELAY_MS = 120;
+  private rootPlugin: RssDashboardPlugin;
+  private syncSource?: DashboardSyncSource;
+  private sourceUnsubscribe?: () => void;
+  private librarySource: "local" | "freshrss" = "local";
   private settings: RssDashboardSettings;
   private saver: ArticleSaver;
   public currentFolder: string | null = null;
@@ -143,6 +148,7 @@ export class RssDashboardView extends ItemView {
     private plugin: RssDashboardPlugin,
   ) {
     super(leaf);
+    this.rootPlugin = plugin;
     this.settings = this.plugin.settings;
     this.collapsedFolders = this.settings.collapsedFolders || [];
 
@@ -170,6 +176,63 @@ export class RssDashboardView extends ItemView {
 
     this.scope = new Scope(this.app?.scope || undefined);
     this.setupScope();
+  }
+
+  async setLibrarySource(source: "local" | "freshrss"): Promise<void> {
+    if (source === this.librarySource) return;
+    if (source === "freshrss" && !this.rootPlugin.syncRuntime?.service) {
+      this.rootPlugin.openSyncSettings();
+      return;
+    }
+    await this.plugin.saveSettings();
+    this.closeMobileSidebarModal();
+    if (source === "freshrss") {
+      this.syncSource = new DashboardSyncSource(this.rootPlugin, this.rootPlugin.syncRuntime!);
+      this.plugin = this.syncSource.createPluginAdapter();
+    } else {
+      this.syncSource = undefined;
+      this.plugin = this.rootPlugin;
+    }
+    this.librarySource = source;
+    this.settings = this.plugin.settings;
+    this.currentFolder = null;
+    this.currentFeed = null;
+    this.selectedFolders = [];
+    this.selectedFeeds = [];
+    this.selectedTags = [];
+    this.selectedArticle = null;
+    this.inlineArticle = null;
+    this.collapsedFolders = this.settings.collapsedFolders ?? [];
+    this.folderPages = {};
+    this.feedPages = {};
+    this.allArticlesPage = this.unreadArticlesPage = this.readArticlesPage = this.savedArticlesPage = this.starredArticlesPage = 1;
+    this.articleRenderer?.setSourceSettings(this.settings);
+    if (this.sidebar) this.sidebar["plugin"] = this.plugin;
+    this.render();
+  }
+
+  private renderSourceSelector(): void {
+    if (!this.rootPlugin?.syncRuntime) return;
+    const container = this.containerEl.children[1] as HTMLElement;
+    container.addClass("rss-dashboard-has-source");
+    container.querySelector(".rss-dashboard-source-bar")?.remove();
+    const bar = container.createDiv("rss-dashboard-source-bar");
+    container.prepend(bar);
+    const label = bar.createEl("label", { text: "Library " });
+    const select = label.createEl("select", { attr: { "aria-label": "Library source" } });
+    select.createEl("option", { text: "Local", value: "local" });
+    select.createEl("option", { text: "FreshRSS", value: "freshrss" });
+    select.value = this.librarySource;
+    select.addEventListener("change", () => {
+      void this.setLibrarySource(select.value === "freshrss" ? "freshrss" : "local").catch(() => new Notice("Could not switch library; pending changes remain available"));
+    });
+    const settings = bar.createEl("button", { text: "Sync settings" });
+    settings.addEventListener("click", () => this.rootPlugin.openSyncSettings());
+    if (this.librarySource === "freshrss") {
+      const runtime = this.rootPlugin.syncRuntime;
+      const state = runtime.service?.snapshot();
+      bar.createSpan({ text: runtime.error || (runtime.busy ? "Syncing…" : "Pending: " + (state?.operations.length ?? 0)), attr: { role: "status" } });
+    }
   }
 
   getViewType(): string {
@@ -618,6 +681,12 @@ export class RssDashboardView extends ItemView {
 
   // --- Render pipeline ---
   onOpen(): Promise<void> {
+    this.sourceUnsubscribe = this.rootPlugin.syncRuntime?.subscribe(() => {
+      if (this.syncSource) {
+        this.syncSource.refresh();
+        this.refresh();
+      }
+    });
     this.articleRenderer = new ArticleRenderer({
       app: this.app,
       component: this,
@@ -682,7 +751,8 @@ export class RssDashboardView extends ItemView {
       ).on(
         "rss-dashboard:filters-updated",
         (_payload: FiltersUpdatedEventPayload) => {
-          this.syncCurrentFeedReference();
+          this.renderSourceSelector();
+      this.syncCurrentFeedReference();
           this.syncDashboardMultiFiltersFromSettings();
           this.render();
         },
@@ -860,6 +930,7 @@ export class RssDashboardView extends ItemView {
     this.isRenderInProgress = true;
 
     try {
+      this.renderSourceSelector();
       this.syncCurrentFeedReference();
       this.syncDashboardMultiFiltersFromSettings();
       this.verifySavedArticles();
@@ -2698,6 +2769,7 @@ export class RssDashboardView extends ItemView {
 
       if (leaf.view instanceof ReaderView) {
         const view = leaf.view;
+        view.setSourceSettings?.(this.settings);
         view.setReturnLeaf(this.leaf);
         const relatedItems = this.getRelatedItems(article);
         await view.displayItem(article, relatedItems);
@@ -2721,6 +2793,7 @@ export class RssDashboardView extends ItemView {
 
       if (leaf.view instanceof ReaderView) {
         const view = leaf.view;
+        view.setSourceSettings?.(this.settings);
         view.setReturnLeaf(this.leaf);
         const relatedItems = this.getRelatedItems(article);
         await view.displayItem(article, relatedItems);
@@ -3453,6 +3526,7 @@ export class RssDashboardView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.sourceUnsubscribe?.();
     this.closeMobileSidebarModal();
     this.lastViewportMobileSidebarMode = null;
 
@@ -3583,6 +3657,12 @@ export class RssDashboardView extends ItemView {
   }
 
   private async handleUpdateFeed(feed: Feed): Promise<void> {
+    if (this.syncSource) {
+      await this.rootPlugin.syncRuntime?.sync();
+      this.syncSource.refresh();
+      this.refresh();
+      return;
+    }
     try {
       new Notice(`Updating feed "${feed.title}"...`);
 
