@@ -2,6 +2,8 @@
 
 ### Features
 
+- Added a reader translation service with Microsoft and Google providers and an immersive-style bilingual display: translated paragraphs appear directly under the originals in the reader, toggled by a header button, configurable in Settings > Display > Translation.
+
 - Added Local / FreshRSS selection in the existing dashboard, sharing its sidebar, article list, and reader while keeping local subscriptions separate from synchronized data.
 
 - Added a paged podcast playlist that renders a five-episode window around the active episode, with order-relative browsing controls, a return-to-current action for large feeds, and placeholder-first artwork loading that avoids empty or broken-image boxes. This should alleviate performance issues for feeds with many episodes. [GH Issue #183](https://github.com/amatya-aditya/obsidian-rss-dashboard/issues/183)

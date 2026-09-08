@@ -367,6 +367,12 @@ export interface HighlightSettings {
   words: HighlightWord[];
 }
 
+export interface TranslationSettings {
+  enabled: boolean;
+  provider: "microsoft" | "google";
+  targetLanguage: string;
+}
+
 export interface KeywordFilterRule {
   id: string;
   type: "include" | "exclude";
@@ -489,6 +495,7 @@ export interface RssDashboardSettings {
   customProxyUrls: string[];
 
   readerFormat: ReaderFormatSettings;
+  translation: TranslationSettings;
 
   media: MediaSettings;
   articleSaving: ArticleSavingSettings;
@@ -639,6 +646,11 @@ export const DEFAULT_SETTINGS: RssDashboardSettings = {
     lineHeightPct: 160,
     fontFamily: "default",
     paragraphSpacing: "default",
+  },
+  translation: {
+    enabled: true,
+    provider: "microsoft",
+    targetLanguage: "zh-Hans",
   },
   media: {
     autoTagVideos: true,

@@ -329,6 +329,23 @@
   border-bottom-color: var(--background-modifier-border);
 }
 
+/* ── Immersive-style bilingual translation ─────────────────────────────── */
+
+.rss-reader-translation {
+  margin-block: 0.35em;
+  padding: 2px 0;
+  color: var(--rss-reader-translation-color, var(--text-accent));
+  font-size: 0.95em;
+  line-height: inherit;
+  text-align: inherit;
+  border-radius: var(--radius-s, 4px);
+}
+
+.rss-reader-translate-button.active {
+  color: var(--text-accent);
+  background-color: var(--background-modifier-active-hover);
+}
+
 .rss-nitter-stats {
   display: flex;
   flex-wrap: wrap;

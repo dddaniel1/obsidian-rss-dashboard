@@ -300,8 +300,12 @@ describe("ArticleSaver.replaceDatePlaceholders", () => {
       saver as unknown as PrivateSaverAPI
     ).replaceDatePlaceholders(input, date);
 
-    // toLocaleDateString depends on environment, but we expect the long format
-    expect(result).toContain("April 21, 2024");
+    const expected = date.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+    expect(result).toBe(`Date: ${expected}`);
   });
 
   it("replaces {{dateShort}} with YYYY-MM-DD", () => {

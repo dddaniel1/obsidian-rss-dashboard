@@ -68,6 +68,7 @@ import {
   ConfirmTemplateAssignmentModal,
   TemplateNameModal,
 } from "../settings/modals/settings-modals";
+import { TranslationService } from "../services/translation-service";
 
 const VIDEO_ARTICLE_BANNER =
   "This item appears to be a video. Open the source page to watch.";
@@ -90,6 +91,7 @@ export class ReaderView extends ItemView {
 
   public setSourceSettings(settings: RssDashboardSettings): void {
     this.settings = settings;
+    this.ensureTranslateButton();
   }
   private onArticleSave: (item: FeedItem) => void;
   private onArticleUpdate: (
@@ -118,6 +120,9 @@ export class ReaderView extends ItemView {
   private returnLeaf: WorkspaceLeaf | null = null;
   private tagsDropdownCleanup: (() => void) | null = null;
   private currentFullContentFailureType: FullArticleFetchFailureType = "none";
+  private translateButton: HTMLElement | null = null;
+  private translationActive = false;
+  private translationInFlight = false;
   private lastRestrictedNoticeGuid: string | null = null;
 
   private readerFormatPortal: { close: (flushSave: boolean) => void } | null =
@@ -936,6 +941,10 @@ export class ReaderView extends ItemView {
       }
     });
 
+    // Translate button (immersive-style bilingual display)
+    this.translateButton = null;
+    this.ensureTranslateButton(actions);
+
     // Open in browser button
     const browserButton = actions.createDiv({
       cls: "rss-reader-action-button",
@@ -1426,6 +1435,7 @@ export class ReaderView extends ItemView {
 
     // Update toggle button states
     this.updateToggleButtons();
+    this.ensureTranslateButton();
 
     if (item.saved) {
       const fileExists = this.articleSaver.checkSavedFileExists(item);
@@ -1906,6 +1916,134 @@ export class ReaderView extends ItemView {
     } else if (this.shouldRenderVideoSourceBanner(item)) {
       this.renderVideoSourceBanner(item);
     }
+
+    this.translationActive = false;
+  }
+
+  private async toggleTranslation(): Promise<void> {
+    if (!this.readingContainer || this.translationInFlight) {
+      return;
+    }
+
+    if (this.translationActive) {
+      this.readingContainer
+        .querySelectorAll(".rss-reader-translation")
+        .forEach((el) => el.remove());
+      this.translationActive = false;
+      this.updateTranslateButtonState();
+      return;
+    }
+
+    const translation = this.settings.translation;
+    if (!translation?.enabled) {
+      return;
+    }
+
+    const contentRoot = this.readingContainer.querySelector<HTMLElement>(
+      ".rss-reader-article-content",
+    );
+    if (!contentRoot) {
+      new Notice("Nothing to translate in this article.");
+      return;
+    }
+
+    const blocks = TranslationService.collectTranslatableBlocks(contentRoot);
+    if (blocks.length === 0) {
+      new Notice("Nothing to translate in this article.");
+      return;
+    }
+
+    this.translationInFlight = true;
+    this.updateTranslateButtonState();
+    try {
+      const results = await TranslationService.translateBatch(
+        blocks.map((block) => block.textContent || ""),
+        translation.targetLanguage,
+        translation.provider,
+      );
+
+      blocks.forEach((block, index) => {
+        const result = results[index];
+        if (!result?.text) return;
+        const translationEl = this.contentEl.createEl("p", {
+          cls: "rss-reader-translation",
+        });
+        translationEl.textContent = result.text;
+        block.insertAdjacentElement("afterend", translationEl);
+      });
+
+      this.translationActive = true;
+    } catch (error) {
+      console.error(
+        "[RSS Dashboard] Reader translation failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+      new Notice("Translation failed. Check the console for details.");
+    } finally {
+      this.translationInFlight = false;
+      this.updateTranslateButtonState();
+    }
+  }
+
+  private ensureTranslateButton(actionsContainer?: HTMLElement): void {
+    const actions =
+      actionsContainer ??
+      this.contentEl.querySelector<HTMLElement>(".rss-reader-actions");
+    if (!actions) return;
+
+    const isEnabled = Boolean(this.settings.translation?.enabled);
+
+    if (!isEnabled) {
+      if (this.translateButton) {
+        this.translateButton.remove();
+        this.translateButton = null;
+      }
+      return;
+    }
+
+    if (!this.translateButton || !this.translateButton.isConnected) {
+      const translateButton = activeWindow.createDiv({
+        cls: "rss-reader-action-button rss-reader-translate-button",
+        attr: {
+          title: "Translate article",
+          "aria-label": "Translate article",
+          role: "button",
+          tabindex: "0",
+        },
+      });
+      setIcon(translateButton, "languages");
+
+      translateButton.addEventListener("click", () => {
+        void this.toggleTranslation();
+      });
+      translateButton.addEventListener("keydown", (e: KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          void this.toggleTranslation();
+        }
+      });
+
+      const browserButton = actions.querySelector(
+        ".rss-reader-action-button[title='Open in Browser']",
+      );
+      if (browserButton) {
+        actions.insertBefore(translateButton, browserButton);
+      } else {
+        actions.appendChild(translateButton);
+      }
+      this.translateButton = translateButton;
+    }
+
+    this.updateTranslateButtonState();
+  }
+
+  private updateTranslateButtonState(): void {
+    if (!this.translateButton) return;
+    this.translateButton.toggleClass("active", this.translationActive);
+    this.translateButton.setAttribute(
+      "aria-pressed",
+      this.translationActive ? "true" : "false",
+    );
   }
 
   private renderRestrictedBanner(item: FeedItem): void {
@@ -3358,6 +3496,7 @@ export class ReaderView extends ItemView {
     this.contentEl.dataset.rssReaderAlign = format.textAlign;
     this.contentEl.dataset.rssReaderFont = format.fontFamily;
     this.contentEl.dataset.rssReaderParagraph = format.paragraphSpacing;
+    this.ensureTranslateButton();
   }
 
   private toggleReaderFormatDropdown(anchor: HTMLElement): void {

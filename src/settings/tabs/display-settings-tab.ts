@@ -1071,6 +1071,88 @@ export function renderDisplaySettingsTab(
 
   containerEl.createEl("hr", { cls: "rss-dashboard-settings-separator" });
 
+  // ── Translation ───────────────────────────────────────────────────────────
+  const translationHeading = new Setting(containerEl)
+    .setName("Translation")
+    .setHeading();
+  translationHeading.settingEl.dataset.rssSettingsSection = "translation";
+
+  new Setting(containerEl)
+    .setName("Enable translation")
+    .setDesc("Show translation button in the reader toolbar")
+    .addToggle((toggle) =>
+      toggle
+        .setValue(plugin.settings.translation?.enabled ?? true)
+        .onChange((value: boolean) => {
+          void (async () => {
+            plugin.settings.translation = {
+              ...plugin.settings.translation,
+              enabled: value,
+            };
+            await plugin.saveSettings();
+            await rerenderActiveReaderView();
+          })();
+        }),
+    );
+
+  new Setting(containerEl)
+    .setName("Translation service")
+    .setDesc("Choose the service used to translate reader articles")
+    .addDropdown((dropdown) =>
+      dropdown
+        .addOption("microsoft", "Microsoft")
+        .addOption("google", "Google")
+        .setValue(plugin.settings.translation?.provider ?? "microsoft")
+        .onChange((value: string) => {
+          void (async () => {
+            plugin.settings.translation = {
+              ...plugin.settings.translation,
+              provider: value as "microsoft" | "google",
+            };
+            await plugin.saveSettings();
+            await rerenderActiveReaderView();
+          })();
+        }),
+    );
+
+  new Setting(containerEl)
+    .setName("Target language")
+    .setDesc("Choose the language reader articles are translated into")
+    .addDropdown((dropdown) => {
+      const options: Array<[string, string]> = [
+        ["zh-Hans", "Chinese (Simplified)"],
+        ["zh-Hant", "Chinese (Traditional)"],
+        ["ja", "Japanese"],
+        ["ko", "Korean"],
+        ["en", "English"],
+        ["es", "Spanish"],
+        ["fr", "French"],
+        ["de", "German"],
+        ["ru", "Russian"],
+        ["pt", "Portuguese"],
+        ["it", "Italian"],
+      ];
+      for (const [value, label] of options) {
+        dropdown.addOption(value, label);
+      }
+      dropdown
+        .setValue(
+          plugin.settings.translation?.targetLanguage ?? "zh-Hans",
+        )
+        .onChange((value: string) => {
+          void (async () => {
+            plugin.settings.translation = {
+              ...plugin.settings.translation,
+              targetLanguage: value,
+            };
+            await plugin.saveSettings();
+            await rerenderActiveReaderView();
+          })();
+        });
+    });
+
+  containerEl.createEl("hr", { cls: "rss-dashboard-settings-separator" });
+
   // ── Mobile toolbar ────────────────────────────────────────────────────────
   const mobileHeading = new Setting(containerEl)
     .setName("Mobile toolbar")

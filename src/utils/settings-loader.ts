@@ -178,6 +178,11 @@ export function loadAndNormalizeSettings(
     DEFAULT_SETTINGS.readerFormat,
     settings.readerFormat ?? {},
   );
+  settings.translation = Object.assign(
+    {},
+    DEFAULT_SETTINGS.translation,
+    settings.translation ?? {},
+  );
   settings.keywordRules = Object.assign(
     {},
     DEFAULT_SETTINGS.keywordRules,

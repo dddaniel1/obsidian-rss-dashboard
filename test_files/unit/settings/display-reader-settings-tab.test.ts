@@ -243,4 +243,58 @@ describe("renderDisplaySettingsTab() reader section", () => {
     expect(plugin.settings.readerFormat).toEqual(DEFAULT_SETTINGS.readerFormat);
     expect(saveSettings).toHaveBeenCalled();
   });
+
+  it("renders translation settings and persists provider and target language", async () => {
+    const containerEl = document.createElement("div");
+    document.body.appendChild(containerEl);
+    const settings = cloneSettings();
+    const plugin = {
+      app: { workspace: { revealLeaf: vi.fn(async () => {}) } },
+      settings,
+      saveSettings: vi.fn(async () => {}),
+      setImageCachingEnabled: vi.fn(async () => {}),
+      getImageCacheSizeBytes: vi.fn(() => 0),
+      getActiveDashboardView: vi.fn(async () => null),
+      getActiveReaderView: vi.fn(async () => null),
+    } as unknown as RssDashboardPlugin;
+
+    renderDisplaySettingsTab(containerEl, plugin, () => {});
+
+    const enableSetting = getSettingByName(containerEl, "Enable translation");
+    const enableToggle = enableSetting.querySelector("input") as HTMLInputElement;
+    expect(enableToggle.checked).toBe(true);
+
+    enableToggle.checked = false;
+    enableToggle.dispatchEvent(new Event("change"));
+    await flushPromises();
+
+    expect(plugin.settings.translation.enabled).toBe(false);
+    expect(plugin.saveSettings).toHaveBeenCalled();
+
+    const providerSetting = getSettingByName(containerEl, "Translation service");
+    const providerSelect = providerSetting.querySelector(
+      "select",
+    ) as HTMLSelectElement;
+    expect(providerSelect.value).toBe("microsoft");
+
+    providerSelect.value = "google";
+    providerSelect.dispatchEvent(new Event("change"));
+    await flushPromises();
+
+    expect(plugin.settings.translation.provider).toBe("google");
+    expect(plugin.saveSettings).toHaveBeenCalled();
+
+    const languageSetting = getSettingByName(containerEl, "Target language");
+    const languageSelect = languageSetting.querySelector(
+      "select",
+    ) as HTMLSelectElement;
+    expect(languageSelect.value).toBe("zh-Hans");
+
+    languageSelect.value = "ja";
+    languageSelect.dispatchEvent(new Event("change"));
+    await flushPromises();
+
+    expect(plugin.settings.translation.targetLanguage).toBe("ja");
+    expect(plugin.saveSettings).toHaveBeenCalledTimes(3);
+  });
 });
