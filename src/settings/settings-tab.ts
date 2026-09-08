@@ -1,3 +1,4 @@
+import { renderSyncSettingsTab } from "./tabs/sync-settings-tab";
 /**
  * RSS Dashboard Settings Tab — Orchestrator
  *
@@ -95,6 +96,10 @@ export class RssDashboardSettingTab extends PluginSettingTab {
     switch (this.currentTab) {
       case "General":
         renderGeneralSettingsTab(tabContent, this.plugin);
+        this.pendingSection = null;
+        break;
+      case "Sync":
+        this.displaySettingsCleanup = renderSyncSettingsTab(tabContent, this.plugin);
         this.pendingSection = null;
         break;
       case "Storage":

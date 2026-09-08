@@ -1,3 +1,6 @@
+import { initializeSyncFeature } from "./src/services/sync/sync-feature";
+import type { SyncRuntime } from "./src/services/sync/sync-runtime";
+import { SYNC_VIEW_TYPE } from "./src/views/sync-view";
 import {
   App,
   Plugin,
@@ -269,6 +272,39 @@ export default class RssDashboardPlugin extends Plugin {
 
   settings!: RssDashboardSettings;
   feedParser!: FeedParser;
+  syncRuntime?: SyncRuntime;
+
+  async openSyncView(): Promise<void> {
+    const existing = this.app.workspace.getLeavesOfType(SYNC_VIEW_TYPE)[0];
+    const leaf = existing ?? this.app.workspace.getLeaf("tab");
+    await leaf.setViewState({ type: SYNC_VIEW_TYPE, active: true });
+    await this.app.workspace.revealLeaf(leaf);
+  }
+
+  openSyncSettings(): void {
+    void this.openSettingsToTab("Sync");
+  }
+
+  async saveSyncArticle(id: string): Promise<void> {
+    const runtime = this.syncRuntime;
+    const state = runtime?.service?.snapshot();
+    const article = state?.articles[id];
+    if (!runtime || !state || !article) return;
+    if (article.savedFilePath) {
+      await this.app.workspace.openLinkText(article.savedFilePath, "", true);
+      return;
+    }
+    const feed = state.subscriptions.find((item) => item.id === article.feedId);
+    const item: FeedItem = {
+      ...article, guid: state.accountId + "/" + article.id, description: article.content,
+      pubDate: new Date(article.published * 1000).toISOString(), feedTitle: feed?.title ?? "",
+      feedUrl: feed?.url ?? "", coverImage: "",
+    };
+    const folder = normalizePath((this.settings.articleSaving.defaultFolder || "RSS articles") + "/FreshRSS/" + state.accountId + "/" + id);
+    const saved = await this.articleSaver.saveArticle(item, folder);
+    if (saved) await runtime.perform((service) => service.updateLocalArticle(id, { saved: true, savedFilePath: saved.path }));
+  }
+
   articleSaver!: ArticleSaver;
   private backupService!: BackupService;
   protected folderService!: FolderService;
@@ -889,6 +925,11 @@ export default class RssDashboardPlugin extends Plugin {
 
     try {
       this.initializeSettingsBackedServices();
+      try {
+        await initializeSyncFeature(this);
+      } catch {
+        new Notice("FreshRSS sync could not initialize. Check plugin storage access.");
+      }
       const autoRefreshScheduler = this.ensureAutoRefreshScheduler();
 
       if (Platform.isMobile) {
