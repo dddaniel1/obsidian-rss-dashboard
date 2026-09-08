@@ -4,6 +4,8 @@
 
 - Added on-demand full-text loading with Mozilla Readability: when full article content cannot be displayed (truncated RSS excerpts, paywalls, or failed extraction), users can click the "Load full text" button in the inline banner or the reader toolbar action ("Load full article") to fetch and extract clean full content with fallback selectors and relative link/image resolution directly in both the Reader view and Dashboard inline reader.
 
+- Added an option to open external links and articles directly inside Obsidian's native Web viewer tab (`browser` view) instead of leaving to the system default browser, configurable under **Settings > General > Open external links in**. Includes fallback to external browser if the core Web viewer is unavailable.
+
 - Added a reader translation service with Microsoft and Google providers and an immersive-style bilingual display: translated paragraphs appear directly under the originals in the reader, toggled by a header button, configurable in Settings > Display > Translation.
 
 - Added Local / FreshRSS selection in the existing dashboard, sharing its sidebar, article list, and reader while keeping local subscriptions separate from synchronized data.

@@ -1379,6 +1379,53 @@ export default class RssDashboardPlugin extends Plugin {
     }
   }
 
+  async openInInternalWebView(
+    url: string,
+    title?: string,
+    newTab = true,
+  ): Promise<WorkspaceLeaf | null> {
+    const { workspace } = this.app;
+    const viewRegistry = (
+      this.app as unknown as {
+        viewRegistry?: { getViewCreatorByType?: (type: string) => unknown };
+      }
+    ).viewRegistry;
+    const hasBrowserView =
+      typeof viewRegistry?.getViewCreatorByType === "function" &&
+      Boolean(viewRegistry.getViewCreatorByType("browser"));
+
+    if (hasBrowserView) {
+      try {
+        const leaf = workspace.getLeaf(newTab ? "tab" : false);
+        if (!leaf) return null;
+
+        await leaf.setViewState({
+          type: "browser",
+          active: true,
+          state: { url, title, navigate: true },
+        });
+        await workspace.revealLeaf(leaf);
+        workspace.setActiveLeaf(leaf, { focus: true });
+        return leaf;
+      } catch {
+        new Notice("Failed to open web page in Obsidian browser");
+        return null;
+      }
+    }
+
+    new Notice("Obsidian web viewer is not available. Opening in external browser.");
+    activeWindow.open(url, "_blank");
+    return null;
+  }
+
+  openExternalUrl(url: string, title?: string): void {
+    if (this.settings.openInBrowserTarget === "internal") {
+      void this.openInInternalWebView(url, title);
+    } else {
+      activeWindow.open(url, "_blank");
+    }
+  }
+
   private async onArticleSaved(item: FeedItem): Promise<void> {
     if (await this.updateRemoteArticle(item.guid, { saved: true, savedFilePath: item.savedFilePath, tags: item.tags })) return;
     if (item.feedUrl) {

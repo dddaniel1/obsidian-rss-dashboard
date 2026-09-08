@@ -971,11 +971,14 @@ export class ReaderView extends ItemView {
     });
 
     // Open in browser button
+    const isInternalTarget = this.settings.openInBrowserTarget === "internal";
     const browserButton = actions.createDiv({
       cls: "rss-reader-action-button",
-      attr: { title: "Open in Browser" },
+      attr: {
+        title: isInternalTarget ? "Open in Obsidian tab" : "Open in browser",
+      },
     });
-    setIcon(browserButton, "external-link");
+    setIcon(browserButton, isInternalTarget ? "globe" : "external-link");
     browserButton.addEventListener("click", (e) => {
       const item = this.currentItem;
       if (!item) return;
@@ -999,7 +1002,7 @@ export class ReaderView extends ItemView {
         for (const destination of destinations) {
           menu.addItem((menuItem: MenuItem) => {
             menuItem.setTitle(destination.title);
-            menuItem.setIcon("external-link");
+            menuItem.setIcon(isInternalTarget ? "globe" : "external-link");
 
             if (destination.url) {
               const dom = (menuItem as unknown as { dom?: HTMLElement }).dom;
@@ -1021,7 +1024,7 @@ export class ReaderView extends ItemView {
                     new Notice("Could not find this show in apple podcasts.");
                     return;
                   }
-                  activeWindow.open(appleUrl, "_blank");
+                  this.openExternalUrl(appleUrl, destination.title);
                 })();
               });
               return;
@@ -1029,7 +1032,7 @@ export class ReaderView extends ItemView {
 
             const url = destination.url;
             if (url) {
-              menuItem.onClick(() => activeWindow.open(url, "_blank"));
+              menuItem.onClick(() => this.openExternalUrl(url, destination.title));
             } else {
               menuItem.setDisabled(true);
             }
@@ -1042,7 +1045,43 @@ export class ReaderView extends ItemView {
 
       const url = resolveItemExternalUrl(item);
       if (!url) return;
-      activeWindow.open(url, "_blank");
+      this.openExternalUrl(url, this.currentDisplayTitle || item.title);
+    });
+
+    browserButton.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      const item = this.currentItem;
+      if (!item) return;
+      const url = resolveItemExternalUrl(item);
+      if (!url) return;
+
+      const menu = new Menu();
+      menu.addItem((m: MenuItem) => {
+        m.setTitle("Open in Obsidian tab")
+          .setIcon("globe")
+          .onClick(() => {
+            void this.openInInternalBrowser(
+              url,
+              this.currentDisplayTitle || item.title,
+            );
+          });
+      });
+      menu.addItem((m: MenuItem) => {
+        m.setTitle("Open in external browser")
+          .setIcon("external-link")
+          .onClick(() => {
+            activeWindow.open(url, "_blank");
+          });
+      });
+      menu.addItem((m: MenuItem) => {
+        m.setTitle("Copy link")
+          .setIcon("link")
+          .onClick(() => {
+            void navigator.clipboard.writeText(url);
+            new Notice("Link copied to clipboard");
+          });
+      });
+      menu.showAtMouseEvent(e);
     });
 
     this.readingContainer = this.contentEl.createDiv({
@@ -1066,8 +1105,78 @@ export class ReaderView extends ItemView {
       }
     });
 
+    this.registerDomEvent(this.readingContainer, "click", (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      const link = target?.closest("a");
+      if (!link) return;
+      const href = link.getAttribute("href");
+      if (!href || !/^https?:\/\//i.test(href)) return;
+      if (this.settings.openInBrowserTarget === "internal") {
+        e.preventDefault();
+        e.stopPropagation();
+        void this.openInInternalBrowser(href, link.textContent || undefined);
+      }
+    });
+
     this.applyReaderFormat();
     return Promise.resolve();
+  }
+
+  openExternalUrl(url: string, title?: string): void {
+    if (this.settings.openInBrowserTarget === "internal") {
+      void this.openInInternalBrowser(url, title);
+    } else {
+      activeWindow.open(url, "_blank");
+    }
+  }
+
+  async openInInternalBrowser(
+    url: string,
+    title?: string,
+  ): Promise<WorkspaceLeaf | null> {
+    const viewRegistry = (
+      this.app as unknown as {
+        viewRegistry?: { getViewCreatorByType?: (type: string) => unknown };
+      }
+    ).viewRegistry;
+    const hasBrowserView =
+      typeof viewRegistry?.getViewCreatorByType === "function" &&
+      Boolean(viewRegistry.getViewCreatorByType("browser"));
+
+    if (hasBrowserView) {
+      try {
+        const leaf = this.app.workspace.getLeaf("tab");
+        if (!leaf) return null;
+
+        await leaf.setViewState({
+          type: "browser",
+          active: true,
+          state: { url, title, navigate: true },
+        });
+        await this.app.workspace.revealLeaf(leaf);
+        this.app.workspace.setActiveLeaf(leaf, { focus: true });
+        return leaf;
+      } catch {
+        new Notice("Failed to open web page in Obsidian browser");
+        return null;
+      }
+    }
+
+    if (this.webViewerIntegration) {
+      try {
+        const handled = await this.webViewerIntegration.openInWebViewer(
+          url,
+          title || "",
+        );
+        if (handled) return null;
+      } catch {
+        // Fall through to external
+      }
+    }
+
+    new Notice("Obsidian web viewer is not available. Opening in external browser.");
+    activeWindow.open(url, "_blank");
+    return null;
   }
 
   async onClose(): Promise<void> {

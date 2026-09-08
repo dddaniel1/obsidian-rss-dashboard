@@ -12,11 +12,14 @@ export interface ArticleContext {
     ) => void;
     onArticleSave?: (article: FeedItem) => Promise<void> | void;
     onArticleClick?: (article: FeedItem) => void;
+    onOpenInInternalBrowser?: (article: FeedItem) => void;
+    onOpenInExternalBrowser?: (article: FeedItem) => void;
   };
   settings: {
     articleSaving: {
       saveFullContent: boolean;
     };
+    openInBrowserTarget?: "internal" | "external";
   };
 }
 
@@ -55,10 +58,27 @@ export function showArticleContextMenu(
 
   menu.addItem((item: MenuItem) => {
     item
-      .setTitle("Open in browser")
+      .setTitle("Open in Obsidian tab")
+      .setIcon("globe")
+      .onClick(() => {
+        if (ctx.callbacks.onOpenInInternalBrowser) {
+          ctx.callbacks.onOpenInInternalBrowser(article);
+        } else {
+          activeWindow.open(article.link, "_blank");
+        }
+      });
+  });
+
+  menu.addItem((item: MenuItem) => {
+    item
+      .setTitle("Open in external browser")
       .setIcon("external-link")
       .onClick(() => {
-        activeWindow.open(article.link, "_blank");
+        if (ctx.callbacks.onOpenInExternalBrowser) {
+          ctx.callbacks.onOpenInExternalBrowser(article);
+        } else {
+          activeWindow.open(article.link, "_blank");
+        }
       });
   });
 

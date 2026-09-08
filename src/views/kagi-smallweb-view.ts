@@ -517,11 +517,12 @@ export class KagiSmallwebView extends ItemView {
     setIcon(previewBtn, "globe");
     previewBtn.createSpan({ text: " View Blog" });
     previewBtn.addEventListener("click", () => {
-      if (this.plugin.settings.useWebViewer) {
-        // Open in sidebar using internal browser
-        activeWindow.open(entry.postUrl, "_blank", "noopener,noreferrer");
+      if (
+        this.plugin.settings.openInBrowserTarget === "internal" ||
+        this.plugin.settings.useWebViewer
+      ) {
+        void this.plugin.openInInternalWebView(entry.postUrl, entry.postTitle);
       } else {
-        // Open in external browser
         activeWindow.open(entry.postUrl, "_blank");
       }
     });

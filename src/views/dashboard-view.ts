@@ -1069,6 +1069,18 @@ export class RssDashboardView extends ItemView {
           onOpenInReaderView: (article) => {
             void this.handleOpenInReaderView(article);
           },
+          onOpenInInternalBrowser: (article) => {
+            const url = resolveItemExternalUrl(article);
+            if (url) {
+              void this.plugin.openInInternalWebView(url, article.title);
+            }
+          },
+          onOpenInExternalBrowser: (article) => {
+            const url = resolveItemExternalUrl(article);
+            if (url) {
+              activeWindow.open(url, "_blank");
+            }
+          },
           onRenderArticleTitle: (titleElement) => {
             void scheduleProcessMathElements(titleElement, {
               app: this.app,
@@ -4263,16 +4275,23 @@ export class RssDashboardView extends ItemView {
         },
       );
 
+      const isInternalTarget = this.settings.openInBrowserTarget === "internal";
       const browserButton = actions.createDiv({
         cls: "rss-reader-action-button",
-        attr: { title: "Open in Browser" },
+        attr: {
+          title: isInternalTarget ? "Open in Obsidian tab" : "Open in browser",
+        },
       });
-      setIcon(browserButton, "external-link");
+      setIcon(browserButton, isInternalTarget ? "globe" : "external-link");
       browserButton.addEventListener("click", () => {
         if (this.inlineArticle) {
           const url = resolveItemExternalUrl(this.inlineArticle);
           if (url) {
-            activeWindow.open(url, "_blank");
+            if (this.settings.openInBrowserTarget === "internal") {
+              void this.plugin.openInInternalWebView(url, this.inlineArticle.title);
+            } else {
+              activeWindow.open(url, "_blank");
+            }
           }
         }
       });

@@ -201,6 +201,8 @@ export type ViewLocation =
   | "inline"
   | "external-browser";
 
+export type OpenInBrowserTarget = "internal" | "external";
+
 export type PodcastTheme =
   | "obsidian"
   | "minimal"
@@ -489,6 +491,7 @@ export interface RssDashboardSettings {
   readerViewLocation: ViewLocation;
   savedArticleOpenLocation: ViewLocation;
   useWebViewer: boolean;
+  openInBrowserTarget: OpenInBrowserTarget;
 
   corsProxyEnabled: boolean;
   corsProxyUrl: string;
@@ -636,6 +639,7 @@ export const DEFAULT_SETTINGS: RssDashboardSettings = {
   readerViewLocation: "main",
   savedArticleOpenLocation: "main",
   useWebViewer: true,
+  openInBrowserTarget: "internal",
   corsProxyEnabled: true,
   corsProxyUrl: "auto",
   customProxyUrls: [],

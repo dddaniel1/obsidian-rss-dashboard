@@ -130,13 +130,22 @@ export function renderGeneralSettingsTab(
     );
 
   new Setting(containerEl)
-    .setName("Use web viewer")
-    .setDesc("Use web viewer core plugin for articles when available")
-    .addToggle((toggle) =>
-      toggle
-        .setValue(plugin.settings.useWebViewer || false)
-        .onChange(async (value) => {
-          plugin.settings.useWebViewer = value;
+    .setName("Open external links in")
+    .setDesc(
+      "Choose whether to open external web links in an Obsidian internal tab or your system default browser.",
+    )
+    .addDropdown((dropdown) =>
+      dropdown
+        .addOption("internal", "Obsidian internal tab")
+        .addOption("external", "System default browser")
+        .setValue(
+          plugin.settings.openInBrowserTarget ||
+            (plugin.settings.useWebViewer ? "internal" : "external"),
+        )
+        .onChange(async (value: string) => {
+          const target = value as import("../../types/types").OpenInBrowserTarget;
+          plugin.settings.openInBrowserTarget = target;
+          plugin.settings.useWebViewer = target === "internal";
           await plugin.saveSettings();
         }),
     );

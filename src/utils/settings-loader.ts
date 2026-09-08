@@ -140,6 +140,10 @@ export function loadAndNormalizeSettings(
     settings.useWebViewer = true;
   }
 
+  if (!settings.openInBrowserTarget) {
+    settings.openInBrowserTarget = settings.useWebViewer ? "internal" : "external";
+  }
+
   settings.articleSaving = Object.assign(
     {},
     DEFAULT_SETTINGS.articleSaving,

@@ -45,6 +45,8 @@ interface ArticleListCallbacks {
   onOpenInReaderView?: (article: FeedItem) => void;
   onRenderArticleTitle?: (titleElement: HTMLElement) => void;
   onOpenInBrowser?: (article: FeedItem) => void;
+  onOpenInInternalBrowser?: (article: FeedItem) => void;
+  onOpenInExternalBrowser?: (article: FeedItem) => void;
   onToggleSidebar: () => void;
   onSortChange: (value: "newest" | "oldest") => void;
   onGroupChange: (value: "none" | "feed" | "date" | "folder") => void;
@@ -1501,7 +1503,10 @@ export class ArticleList {
   private showArticleContextMenu(event: MouseEvent, article: FeedItem): void {
     showArticleContextMenuUtil(event, article, {
       callbacks: this.callbacks,
-      settings: { articleSaving: this.settings.articleSaving },
+      settings: {
+        articleSaving: this.settings.articleSaving,
+        openInBrowserTarget: this.settings.openInBrowserTarget,
+      },
     });
   }
 
