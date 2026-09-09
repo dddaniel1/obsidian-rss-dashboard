@@ -9,7 +9,8 @@ import {
 } from "../../../src/types/types";
 
 vi.mock("../../../src/utils/platform-utils", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../src/utils/platform-utils")>();
+  const actual =
+    await importOriginal<typeof import("../../../src/utils/platform-utils")>();
   return {
     ...actual,
     robustFetch: vi.fn(),
@@ -155,7 +156,10 @@ describe("DashboardView inline full text button", () => {
       registerEvent: vi.fn(),
     };
     const leaf = { app } as unknown as WorkspaceLeaf;
-    const view = new RssDashboardView(leaf, plugin as never) as unknown as DashboardViewTestInternals;
+    const view = new RssDashboardView(
+      leaf,
+      plugin as never,
+    ) as unknown as DashboardViewTestInternals;
     view.articleRenderer = {
       loadFullArticle: mockLoadFullArticle,
       isContentFullArticle: mockIsContentFullArticle,
@@ -196,7 +200,10 @@ describe("DashboardView inline full text button", () => {
       registerEvent: vi.fn(),
     };
     const leaf = { app } as unknown as WorkspaceLeaf;
-    const view = new RssDashboardView(leaf, plugin as never) as unknown as DashboardViewTestInternals;
+    const view = new RssDashboardView(
+      leaf,
+      plugin as never,
+    ) as unknown as DashboardViewTestInternals;
     view.articleRenderer = {
       loadFullArticle: mockLoadFullArticle,
       isContentFullArticle: mockIsContentFullArticle,
@@ -217,13 +224,15 @@ describe("DashboardView inline full text button", () => {
     // Loading state
     view.updateInlineFullTextButton(false, true);
     expect(fullTextButton.classList.contains("is-loading")).toBe(true);
-    expect(fullTextButton.getAttribute("title")).toBe("Loading full article...");
+    expect(fullTextButton.getAttribute("title")).toBe(
+      "Loading full article...",
+    );
 
     // Loaded state
     view.updateInlineFullTextButton(true, false);
     expect(fullTextButton.classList.contains("is-loading")).toBe(false);
     expect(fullTextButton.classList.contains("is-loaded")).toBe(true);
-    expect(fullTextButton.getAttribute("title")).toBe("Reload full article");
+    expect(fullTextButton.getAttribute("title")).toBe("Show original article");
 
     // Unloaded idle state
     view.updateInlineFullTextButton(false, false);

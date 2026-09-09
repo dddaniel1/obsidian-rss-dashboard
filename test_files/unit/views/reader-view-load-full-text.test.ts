@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ReaderView } from "../../../src/views/reader-view";
 import {
   FeedItem,
+  Feed,
   RssDashboardSettings,
   DEFAULT_SETTINGS,
 } from "../../../src/types/types";
@@ -51,11 +52,37 @@ function makeItem(overrides: Partial<FeedItem> = {}): FeedItem {
   };
 }
 
+function deferredFetch() {
+  let resolve!: (value: {
+    content: string;
+    failureType: "none" | "restricted";
+  }) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<{
+    content: string;
+    failureType: "none" | "restricted";
+  }>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+const fullText = (label: string) =>
+  `<p>${`${label} full article content. `.repeat(20)}</p>`;
+
 describe("ReaderView load full text with Readability", () => {
   let readerView: ReaderView;
+  let settings: RssDashboardSettings;
+
+  afterEach(() => {
+    document.body.empty();
+    vi.clearAllMocks();
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    fetchFullArticleContentWithOutcomeMock.mockReset();
     document.body.innerHTML = "";
 
     const mockApp = {
@@ -69,9 +96,15 @@ describe("ReaderView load full text with Readability", () => {
       },
     };
 
+    settings = {
+      ...DEFAULT_SETTINGS,
+      useWebViewer: false,
+      corsProxyEnabled: false,
+    } as RssDashboardSettings;
+
     readerView = new ReaderView(
       new MockLeaf(mockApp) as never,
-      { ...DEFAULT_SETTINGS, useWebViewer: false, corsProxyEnabled: false } as RssDashboardSettings,
+      settings,
       {
         saveArticle: vi.fn(),
         checkSavedFileExists: vi.fn().mockReturnValue(true),
@@ -102,6 +135,163 @@ describe("ReaderView load full text with Readability", () => {
     expect(fullTextButton).not.toBeNull();
     expect(fullTextButton?.getAttribute("title")).toBe("Load full article");
     expect(fullTextButton?.classList.contains("is-loaded")).toBe(false);
+  });
+
+  it("shares the automatic article load with the toolbar instead of fetching twice", async () => {
+    const pending = deferredFetch();
+    fetchFullArticleContentWithOutcomeMock.mockReturnValue(pending.promise);
+    await readerView.onOpen();
+    const displaying = readerView.displayItem(makeItem());
+    const manual = readerView.loadFullArticle();
+    expect(fetchFullArticleContentWithOutcomeMock).toHaveBeenCalledTimes(1);
+    pending.resolve({ content: fullText("Current"), failureType: "none" });
+    await Promise.all([displaying, manual]);
+    expect(
+      readerView.contentEl.querySelectorAll(".rss-reader-item-title"),
+    ).toHaveLength(1);
+    expect(readerView.contentEl.textContent).toContain("Current full article");
+  });
+
+  it("ignores an automatic response after another article has opened", async () => {
+    const pending = deferredFetch();
+    fetchFullArticleContentWithOutcomeMock.mockReturnValueOnce(pending.promise);
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
+      content: fullText("Second"),
+      failureType: "none",
+    });
+    await readerView.onOpen();
+    const first = readerView.displayItem(makeItem());
+    await readerView.displayItem(
+      makeItem({
+        guid: "second",
+        title: "Second",
+        link: "https://example.com/second",
+      }),
+    );
+    pending.resolve({ content: fullText("Obsolete"), failureType: "none" });
+    await first;
+    expect(readerView.contentEl.textContent).toContain("Second full article");
+    expect(readerView.contentEl.textContent).not.toContain(
+      "Obsolete full article",
+    );
+  });
+
+  it.each(["success", "restricted", "error"])(
+    "keeps the new article's load independent of an old manual %s",
+    async (outcome) => {
+      await readerView.onOpen();
+      await readerView.displayItem(makeItem({ link: "https://aeon.co/first" }));
+      const oldFetch = deferredFetch();
+      fetchFullArticleContentWithOutcomeMock.mockReturnValueOnce(
+        oldFetch.promise,
+      );
+      const oldLoad = readerView.loadFullArticle();
+      const second = makeItem({
+        guid: "second",
+        title: "Second",
+        link: "https://aeon.co/second",
+      });
+      await readerView.displayItem(second);
+      const newFetch = deferredFetch();
+      fetchFullArticleContentWithOutcomeMock.mockReturnValueOnce(
+        newFetch.promise,
+      );
+      const newLoad = readerView.loadFullArticle();
+      expect(fetchFullArticleContentWithOutcomeMock).toHaveBeenCalledTimes(2);
+      if (outcome === "error") oldFetch.reject(new Error("Old request failed"));
+      else
+        oldFetch.resolve({
+          content: outcome === "success" ? fullText("Obsolete") : "",
+          failureType: outcome === "restricted" ? "restricted" : "none",
+        });
+      expect(await oldLoad).toBe(false);
+      expect(readerView.contentEl.textContent).not.toContain(
+        "Obsolete full article",
+      );
+      expect(second.restrictedReason).toBeUndefined();
+      expect(
+        readerView.contentEl
+          .querySelector(".rss-reader-fulltext-button")
+          ?.classList.contains("is-loading"),
+      ).toBe(true);
+      expect(await readerView.loadFullArticle()).toBe(false);
+      expect(fetchFullArticleContentWithOutcomeMock).toHaveBeenCalledTimes(2);
+      newFetch.resolve({ content: fullText("Second"), failureType: "none" });
+      expect(await newLoad).toBe(true);
+      expect(readerView.contentEl.textContent).toContain("Second full article");
+    },
+  );
+
+  it("does not render a pending full article after the reader closes", async () => {
+    await readerView.onOpen();
+    await readerView.displayItem(makeItem({ link: "https://aeon.co/first" }));
+    const pending = deferredFetch();
+    fetchFullArticleContentWithOutcomeMock.mockReturnValueOnce(pending.promise);
+    const loading = readerView.loadFullArticle();
+    await readerView.onClose();
+    pending.resolve({ content: fullText("Obsolete"), failureType: "none" });
+    expect(await loading).toBe(false);
+    expect(readerView.contentEl.textContent).not.toContain(
+      "Obsolete full article",
+    );
+  });
+
+  it("invalidates a pending full-text request when the podcast player selects another episode", async () => {
+    const firstEpisode = makeItem({
+      guid: "podcast-1",
+      title: "Podcast episode 1",
+      link: "https://example.com/podcast-1",
+      mediaType: "podcast",
+      audioUrl: "https://example.com/podcast-1.mp3",
+      content: "",
+    });
+    const secondEpisode = makeItem({
+      guid: "podcast-2",
+      title: "Podcast episode 2",
+      link: "https://example.com/podcast-2",
+      mediaType: "podcast",
+      audioUrl: "https://example.com/podcast-2.mp3",
+      content: "",
+    });
+    settings.feeds = [
+      {
+        title: "Reader Feed",
+        url: firstEpisode.feedUrl,
+        folder: "Podcasts",
+        items: [firstEpisode, secondEpisode],
+        lastUpdated: 0,
+      } satisfies Feed,
+    ];
+
+    await readerView.onOpen();
+    await readerView.displayItem(firstEpisode);
+    const pending = deferredFetch();
+    fetchFullArticleContentWithOutcomeMock.mockReturnValueOnce(pending.promise);
+    const manualLoad = readerView.loadFullArticle();
+
+    const secondRow = readerView.contentEl.querySelector<HTMLElement>(
+      ".playlist-episode-row[data-episode-guid='podcast-2']",
+    );
+    secondRow?.click();
+
+    pending.resolve({
+      content: fullText("Obsolete podcast"),
+      failureType: "none",
+    });
+    expect(await manualLoad).toBe(false);
+    expect(readerView.contentEl.textContent).not.toContain(
+      "Obsolete podcast full article",
+    );
+    expect(
+      readerView.contentEl
+        .querySelector(".rss-reader-fulltext-button")
+        ?.classList.contains("is-loading"),
+    ).toBe(false);
+    expect(
+      readerView.contentEl
+        .querySelector(".playlist-episode-row[data-episode-guid='podcast-2']")
+        ?.classList.contains("active"),
+    ).toBe(true);
   });
 
   it("includes a load full text button in the restricted paywall banner", async () => {
@@ -148,7 +338,9 @@ describe("ReaderView load full text with Readability", () => {
     expect(excerptBanner).not.toBeNull();
     expect(excerptBanner?.textContent).toContain("Showing feed summary");
 
-    const loadBtn = excerptBanner?.querySelector(".rss-reader-load-fulltext-btn");
+    const loadBtn = excerptBanner?.querySelector(
+      ".rss-reader-load-fulltext-btn",
+    );
     expect(loadBtn).not.toBeNull();
     expect(loadBtn?.textContent).toBe("Load full text");
   });
@@ -177,7 +369,9 @@ describe("ReaderView load full text with Readability", () => {
 
     // Now mock second call (on-demand click) returning full article content
     const fullArticleHtml =
-      "<p>" + "This is the full article content extracted by Readability. ".repeat(10) + "</p>";
+      "<p>" +
+      "This is the full article content extracted by Readability. ".repeat(10) +
+      "</p>";
     fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
       content: fullArticleHtml,
       failureType: "none",
@@ -197,7 +391,9 @@ describe("ReaderView load full text with Readability", () => {
     });
 
     // The restricted banner should now be removed
-    expect(readingContainer.querySelector(".rss-reader-paywall-banner")).toBeNull();
+    expect(
+      readingContainer.querySelector(".rss-reader-paywall-banner"),
+    ).toBeNull();
     expect(item.restrictedReason).toBeUndefined();
 
     // Toolbar button should now show is-loaded
@@ -207,7 +403,7 @@ describe("ReaderView load full text with Readability", () => {
       ".rss-reader-fulltext-button",
     );
     expect(fullTextButton?.classList.contains("is-loaded")).toBe(true);
-    expect(fullTextButton?.getAttribute("title")).toBe("Reload full article");
+    expect(fullTextButton?.getAttribute("title")).toBe("Show original article");
   });
 
   it("loads full article when clicking toolbar full-text button", async () => {
@@ -252,20 +448,65 @@ describe("ReaderView load full text with Readability", () => {
     expect(fullTextButton.classList.contains("is-loaded")).toBe(true);
   });
 
+  it("restores the original article when clicking toolbar full-text button again", async () => {
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
+      content: fullText("Fetched"),
+      failureType: "none",
+    });
+
+    const item = makeItem();
+    await readerView.onOpen();
+    await readerView.displayItem(item);
+
+    const contentEl = (readerView as unknown as { contentEl: HTMLElement })
+      .contentEl;
+    const fullTextButton = contentEl.querySelector(
+      ".rss-reader-fulltext-button",
+    ) as HTMLElement;
+    expect(fullTextButton.classList.contains("is-loaded")).toBe(true);
+
+    fullTextButton.click();
+
+    const readingContainer = (
+      readerView as unknown as { readingContainer: HTMLElement }
+    ).readingContainer;
+    await vi.waitFor(() => {
+      const content = readingContainer.querySelector(
+        ".rss-reader-article-content",
+      );
+      expect(content?.textContent).toContain("Short excerpt summary.");
+    });
+
+    expect(readingContainer.textContent).not.toContain(
+      "Fetched full article content",
+    );
+    expect(readingContainer.textContent).toContain("Showing feed summary");
+    expect(
+      readingContainer.querySelector(".rss-reader-item-title")?.textContent,
+    ).toBe(item.title);
+    expect(fullTextButton.classList.contains("is-loaded")).toBe(false);
+    expect(fullTextButton.getAttribute("title")).toBe("Load full article");
+    expect(fetchFullArticleContentWithOutcomeMock).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves existing content when loadFullArticle fails", async () => {
     fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
       content: "",
       failureType: "none",
     });
 
-    const item = makeItem({ description: "<p>Original excerpt preserved.</p>" });
+    const item = makeItem({
+      description: "<p>Original excerpt preserved.</p>",
+    });
     await readerView.onOpen();
     await readerView.displayItem(item);
 
     const readingContainer = (
       readerView as unknown as { readingContainer: HTMLElement }
     ).readingContainer;
-    expect(readingContainer.textContent).toContain("Original excerpt preserved.");
+    expect(readingContainer.textContent).toContain(
+      "Original excerpt preserved.",
+    );
 
     // Next call fails
     fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
@@ -283,7 +524,9 @@ describe("ReaderView load full text with Readability", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    expect(readingContainer.textContent).toContain("Original excerpt preserved.");
+    expect(readingContainer.textContent).toContain(
+      "Original excerpt preserved.",
+    );
     expect(fullTextButton.classList.contains("is-loaded")).toBe(false);
   });
 });

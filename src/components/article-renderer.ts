@@ -90,6 +90,8 @@ export class ArticleRenderer {
   private lastRestrictedNoticeGuid: string | null = null;
   private lastContainer: HTMLElement | null = null;
   private fullArticleLoading = false;
+  private renderGeneration = 0;
+  private fullArticleLoadingNotice: Notice | null = null;
 
   constructor(options: ArticleRendererOptions) {
     this.app = options.app;
@@ -114,11 +116,31 @@ export class ArticleRenderer {
     return this.currentItem;
   }
 
+  public destroy(): void {
+    this.renderGeneration++;
+    this.fullArticleLoadingNotice?.hide();
+    this.fullArticleLoadingNotice = null;
+    this.fullArticleLoading = false;
+    this.currentItem = null;
+    this.lastContainer = null;
+    this.currentFullContent = undefined;
+    this.currentDisplayTitle = undefined;
+    this.currentReaderTitle = undefined;
+    this.currentContentIsFullArticle = false;
+    this.currentFullContentFailureType = "none";
+    this.cleanupPlayers();
+  }
+
   public async render(
     container: HTMLElement,
     item: FeedItem,
     relatedItems: FeedItem[] = [],
   ): Promise<void> {
+    const generation = ++this.renderGeneration;
+    this.fullArticleLoadingNotice?.hide();
+    this.fullArticleLoadingNotice = null;
+    this.fullArticleLoading = false;
+    this.currentFullContent = undefined;
     this.lastContainer = container;
     if (this.currentItem?.guid !== item.guid) {
       this.lastRestrictedNoticeGuid = null;
@@ -153,33 +175,43 @@ export class ArticleRenderer {
       }
       await this.displayPodcast(container, item);
     } else {
-      const fetchedContent = this.shouldSkipFullArticleFetch(item)
-        ? ""
-        : await this.fetchFullArticleContent(item.link);
-      const hasFullArticleContent =
-        this.hasMeaningfulArticleContent(fetchedContent);
+      const skipFetch = this.shouldSkipFullArticleFetch(item);
+      this.fullArticleLoading = !skipFetch && Boolean(item.link);
+      this.onFullArticleStateChange?.(false, this.fullArticleLoading);
+      try {
+        const fetchedContent = skipFetch
+          ? ""
+          : await this.fetchFullArticleContent(item.link);
+        if (generation !== this.renderGeneration) return;
+        const hasFullArticleContent =
+          this.hasMeaningfulArticleContent(fetchedContent);
 
-      if (hasFullArticleContent) {
-        item.restrictedReason = undefined;
-      } else if (this.lastFullArticleFetchWasRestricted()) {
-        item.restrictedReason = RESTRICTED_ARTICLE_REASON;
-        this.showRestrictedNotice(item);
+        if (hasFullArticleContent) {
+          item.restrictedReason = undefined;
+        } else if (this.lastFullArticleFetchWasRestricted()) {
+          item.restrictedReason = RESTRICTED_ARTICLE_REASON;
+          this.showRestrictedNotice(item);
+        }
+
+        const displayTitle = hasFullArticleContent
+          ? this.extractDisplayTitleFromHtml(fetchedContent)
+          : null;
+        const fullContent = hasFullArticleContent
+          ? fetchedContent
+          : item.content || item.description || "";
+        this.currentFullContent = fullContent;
+        this.currentDisplayTitle = displayTitle || undefined;
+        this.currentContentIsFullArticle = hasFullArticleContent;
+        await this.displayArticle(container, item, fullContent);
+      } finally {
+        if (generation === this.renderGeneration) {
+          this.fullArticleLoading = false;
+          this.onFullArticleStateChange?.(
+            this.currentContentIsFullArticle,
+            false,
+          );
+        }
       }
-
-      const displayTitle = hasFullArticleContent
-        ? this.extractDisplayTitleFromHtml(fetchedContent)
-        : null;
-      const fullContent = hasFullArticleContent
-        ? fetchedContent
-        : item.content || item.description || "";
-      this.currentFullContent = fullContent;
-      this.currentDisplayTitle = displayTitle || undefined;
-      this.currentContentIsFullArticle = hasFullArticleContent;
-      await this.displayArticle(container, item, fullContent);
-      this.onFullArticleStateChange?.(
-        this.currentContentIsFullArticle,
-        this.fullArticleLoading,
-      );
     }
   }
 
@@ -248,6 +280,7 @@ export class ArticleRenderer {
     }
 
     const onEpisodeSelected = (selectedEpisode: FeedItem) => {
+      this.invalidateFullArticleStateForPlayerNavigation();
       this.currentItem = selectedEpisode;
       this.currentDisplayTitle = undefined;
       this.currentReaderTitle = this.isTweetLikeItem(selectedEpisode)
@@ -272,6 +305,17 @@ export class ArticleRenderer {
     } else {
       await this.displayArticle(container, item);
     }
+  }
+
+  private invalidateFullArticleStateForPlayerNavigation(): void {
+    this.renderGeneration++;
+    this.fullArticleLoadingNotice?.hide();
+    this.fullArticleLoadingNotice = null;
+    this.fullArticleLoading = false;
+    this.currentFullContent = undefined;
+    this.currentContentIsFullArticle = false;
+    this.currentFullContentFailureType = "none";
+    this.onFullArticleStateChange?.(false, false);
   }
 
   private async displayArticle(
@@ -736,6 +780,7 @@ export class ArticleRenderer {
   // --- Helper methods (extracted from ReaderView) ---
 
   private async fetchFullArticleContent(url?: string): Promise<string> {
+    const generation = this.renderGeneration;
     if (!url) {
       this.currentFullContentFailureType = "none";
       return "";
@@ -746,10 +791,14 @@ export class ArticleRenderer {
         ? this.settings.corsProxyUrl
         : undefined;
       const result = await fetchFullArticleContentWithOutcome(url, proxyUrl);
-      this.currentFullContentFailureType = result.failureType;
+      if (generation === this.renderGeneration) {
+        this.currentFullContentFailureType = result.failureType;
+      }
       return result.content;
     } catch {
-      this.currentFullContentFailureType = "network";
+      if (generation === this.renderGeneration) {
+        this.currentFullContentFailureType = "network";
+      }
       return "";
     }
   }
@@ -772,15 +821,28 @@ export class ArticleRenderer {
       return false;
     }
 
+    if (this.currentContentIsFullArticle) {
+      this.currentContentIsFullArticle = false;
+      this.currentDisplayTitle = undefined;
+      this.currentFullContent = item.content || item.description || "";
+      container.empty();
+      this.renderArticle(container, item);
+      this.onFullArticleStateChange?.(false, false);
+      this.updateBannerButtonsLoading(container, false);
+      return true;
+    }
+
     if (!item.link) {
       new Notice("No URL available to fetch full article.");
       return false;
     }
 
+    const generation = this.renderGeneration;
     this.fullArticleLoading = true;
     this.onFullArticleStateChange?.(this.currentContentIsFullArticle, true);
     this.updateBannerButtonsLoading(container, true);
     const loadingNotice = new Notice("Fetching full article...", 0);
+    this.fullArticleLoadingNotice = loadingNotice;
 
     try {
       const proxyUrl =
@@ -793,6 +855,7 @@ export class ArticleRenderer {
         proxyUrl,
       );
       loadingNotice.hide();
+      if (generation !== this.renderGeneration) return false;
 
       if (this.hasMeaningfulArticleContent(result.content)) {
         item.restrictedReason = undefined;
@@ -817,13 +880,20 @@ export class ArticleRenderer {
       }
     } catch (e) {
       loadingNotice.hide();
+      if (generation !== this.renderGeneration) return false;
       console.error("[RSS Dashboard] Failed to load full article:", e);
       new Notice("Error loading full article.");
       return false;
     } finally {
-      this.fullArticleLoading = false;
-      this.onFullArticleStateChange?.(this.currentContentIsFullArticle, false);
-      this.updateBannerButtonsLoading(container, false);
+      if (generation === this.renderGeneration) {
+        this.fullArticleLoadingNotice = null;
+        this.fullArticleLoading = false;
+        this.onFullArticleStateChange?.(
+          this.currentContentIsFullArticle,
+          false,
+        );
+        this.updateBannerButtonsLoading(container, false);
+      }
     }
   }
 
