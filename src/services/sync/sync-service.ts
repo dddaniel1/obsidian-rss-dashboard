@@ -224,6 +224,7 @@ export class SyncService {
   private async run(provider: SyncProvider): Promise<void> {
     let folders = await provider.getFolders();
     let feeds = await provider.getSubscriptions();
+    const knownFolders = () => this.withSubscriptionFolders(folders, feeds);
     // Only complete snapshots are used to infer absence.
     for (const op of this.state.operations.slice()) {
       let absent = false;
@@ -232,8 +233,8 @@ export class SyncService {
         absent = !feeds.some((feed) => feed.id === op.feedId);
         alreadyDone = absent && op.kind === "unsubscribe";
       } else if (op.kind === "rename-folder" || op.kind === "delete-folder") {
-        absent = !folders.some((folder) => folder.id === op.folder);
-        alreadyDone = absent && (op.kind === "delete-folder" || folders.some((folder) => folder.id === LABEL + op.name));
+        absent = !knownFolders().some((folder) => folder.id === op.folder);
+        alreadyDone = absent && (op.kind === "delete-folder" || knownFolders().some((folder) => folder.id === LABEL + op.name));
       } else if (op.kind === "subscribe") {
         alreadyDone = feeds.some((feed) => feed.url === op.url);
       } else if (op.kind === "article-state") {
@@ -255,7 +256,7 @@ export class SyncService {
       await this.change((state) => { state.operations = state.operations.filter((item) => item.id !== op.id); });
     }
     await this.change((state) => {
-      state.folders = [...folders, ...state.folders.filter((folder) => folder.pending && !folders.some((remote) => remote.id === folder.id))];
+      state.folders = [...knownFolders(), ...state.folders.filter((folder) => folder.pending && !knownFolders().some((remote) => remote.id === folder.id))];
       state.subscriptions = feeds;
       state.contentStartedAt ??= Math.floor(Date.now() / 1000);
       if (!state.mediaEnclosureBackfill) {
@@ -297,6 +298,20 @@ export class SyncService {
       state.lastSuccess = Date.now();
       this.pruneArticles(state);
     });
+  }
+
+  /**
+   * Some FreshRSS servers list categories only in subscription/list and omit
+   * label entries from tag/list. Derive the missing label folders so they
+   * appear wherever remote folders are used.
+   */
+  private withSubscriptionFolders(folders: RemoteFolder[], feeds: RemoteSubscription[]): RemoteFolder[] {
+    const byId = new Map(folders.map((folder) => [folder.id, folder]));
+    for (const feed of feeds) {
+      if (!feed.folder.startsWith(LABEL) || byId.has(feed.folder)) continue;
+      byId.set(feed.folder, { id: feed.folder, name: feed.folder.slice(LABEL.length) });
+    }
+    return [...byId.values()];
   }
 
   private async collectState(provider: SyncProvider, field: "read" | "starred"): Promise<Set<string>> {

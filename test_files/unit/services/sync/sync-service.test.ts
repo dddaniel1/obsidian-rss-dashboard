@@ -66,6 +66,20 @@ describe("Sync service", () => {
     expect(service.snapshot().folders.find((folder) => folder.name === "中文")).toMatchObject({ pending: true });
   });
 
+  it("derives folders from subscription categories when the tag list omits labels", async () => {
+    const service = new SyncService(emptySyncState("a"), () => Promise.resolve());
+    await service.synchronize(provider({
+      // Some FreshRSS servers expose categories only in subscription/list.
+      getFolders: () => Promise.resolve([]),
+      getSubscriptions: () => Promise.resolve([
+        { id: "feed/1", title: "News", url: "https://example.com/rss", folder: "user/-/label/科技" },
+        { id: "feed/2", title: "Life", url: "https://example.com/life", folder: "user/-/label/科技" },
+        { id: "feed/3", title: "Direct", url: "https://example.com/direct", folder: "" },
+      ]),
+    }));
+    expect(service.snapshot().folders).toEqual([{ id: "user/-/label/科技", name: "科技" }]);
+  });
+
   it("re-fetches the full stream once after upgrade so media enclosures backfill", async () => {
     let durable = emptySyncState("a");
     // A pre-enclosure state: incremental sync finished, but audio URLs are absent.
