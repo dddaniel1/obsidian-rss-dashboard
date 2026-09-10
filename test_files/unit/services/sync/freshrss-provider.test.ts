@@ -21,6 +21,29 @@ describe("FreshRSS provider", () => {
     await expect(provider.getSubscriptions()).rejects.toThrow("Invalid");
   });
 
+  it("lists FreshRSS label folders when tag entries omit the type field", async () => {
+    const { provider } = setup([
+      { status: 200, text: "Auth=x" },
+      {
+        status: 200,
+        text: JSON.stringify({
+          tags: [
+            { id: "user/-/state/com.google/read" },
+            { id: "user/-/label/Technology", sortid: "A1B2C3D4" },
+            { id: "user/-/label/中文" },
+          ],
+        }),
+      },
+    ]);
+
+    await provider.login("u", "p");
+
+    await expect(provider.getFolders()).resolves.toEqual([
+      { id: "user/-/label/Technology", name: "Technology" },
+      { id: "user/-/label/中文", name: "中文" },
+    ]);
+  });
+
   it("preserves article IDs and pagination tokens as strings", async () => {
     const { provider } = setup([
       { status: 200, text: "Auth=x" },

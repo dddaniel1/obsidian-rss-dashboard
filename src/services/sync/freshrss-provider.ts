@@ -104,9 +104,9 @@ export class FreshRssProvider implements SyncProvider {
 
   async getFolders(): Promise<RemoteFolder[]> {
     const data = await this.json("tag/list?output=json");
-    return array(data.tags).map(object).filter((tag) => tag.type === "folder").map((tag) => {
+    return array(data.tags).map(object).flatMap((tag) => {
       const id = string(tag.id);
-      if (!id.startsWith(LABEL)) throw new SyncError("Invalid folder ID", "invalid");
+      if (!id.startsWith(LABEL)) return [];
       return { id, name: id.slice(LABEL.length) };
     });
   }
