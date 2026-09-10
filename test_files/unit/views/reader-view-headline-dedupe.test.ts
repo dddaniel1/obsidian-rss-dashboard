@@ -7,6 +7,19 @@ import {
 } from "../../../src/types/types";
 import { installObsidianDomPolyfills } from "../test-dom-polyfills";
 
+const fetchFullArticleContentWithOutcomeMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../../../src/utils/full-article-fetch", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../../src/utils/full-article-fetch")
+  >("../../../src/utils/full-article-fetch");
+
+  return {
+    ...actual,
+    fetchFullArticleContentWithOutcome: fetchFullArticleContentWithOutcomeMock,
+  };
+});
+
 installObsidianDomPolyfills();
 
 class MockLeaf {
@@ -21,7 +34,6 @@ class MockLeaf {
 type ReaderViewInternals = {
   contentEl: HTMLElement;
   readingContainer: HTMLElement;
-  fetchFullArticleContent: ReturnType<typeof vi.fn>;
 };
 
 function getInternals(view: ReaderView): ReaderViewInternals {
@@ -53,6 +65,8 @@ describe("ReaderView headline de-dupe", () => {
   let mockSettings: RssDashboardSettings;
 
   beforeEach(async () => {
+    fetchFullArticleContentWithOutcomeMock.mockReset();
+
     const mockApp = {
       workspace: {
         getLeavesOfType: vi.fn().mockReturnValue([]),
@@ -81,12 +95,16 @@ describe("ReaderView headline de-dupe", () => {
 
   it("uses page <h1> as display title and strips it from content", async () => {
     const html = `<h1>Page Headline From Site</h1><p>${"x".repeat(260)}</p>`;
-    getInternals(readerView).fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(html);
 
     const item = makeBaseItem({ title: "Feed Title Should Not Show" });
     await readerView.displayItem(item);
+
+    // Full text loads on demand since the behavior change.
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
+      content: html,
+      failureType: "none",
+    });
+    await readerView.loadFullArticle();
 
     const container = getInternals(readerView).readingContainer;
     expect(
@@ -99,12 +117,16 @@ describe("ReaderView headline de-dupe", () => {
 
   it("does not override title for boilerplate <h1> but still strips it near the top", async () => {
     const html = `<h1>Sign in</h1><p>${"x".repeat(260)}</p>`;
-    getInternals(readerView).fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(html);
 
     const item = makeBaseItem({ title: "Feed Title Here" });
     await readerView.displayItem(item);
+
+    // Full text loads on demand since the behavior change.
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
+      content: html,
+      failureType: "none",
+    });
+    await readerView.loadFullArticle();
 
     const container = getInternals(readerView).readingContainer;
     expect(
@@ -120,12 +142,16 @@ describe("ReaderView headline de-dupe", () => {
       "",
     );
     const html = `<div>${prefix}<h1>Deep Heading</h1><p>${"x".repeat(260)}</p></div>`;
-    getInternals(readerView).fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(html);
 
     const item = makeBaseItem({ title: "Feed Title Here" });
     await readerView.displayItem(item);
+
+    // Full text loads on demand since the behavior change.
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
+      content: html,
+      failureType: "none",
+    });
+    await readerView.loadFullArticle();
 
     const container = getInternals(readerView).readingContainer;
     expect(

@@ -1553,7 +1553,7 @@ export class ReaderView extends ItemView {
     item: FeedItem,
     relatedItems: FeedItem[] = [],
   ): Promise<void> {
-    const generation = ++this.articleDisplayGeneration;
+    ++this.articleDisplayGeneration;
     this.fullArticleLoading = false;
     this.fullArticleLoadingNotice?.hide();
     this.fullArticleLoadingNotice = null;
@@ -1627,43 +1627,12 @@ export class ReaderView extends ItemView {
       }
       await this.displayPodcast(item);
     } else {
-      this.fullArticleLoading = !this.shouldSkipFullArticleFetch(item);
-      this.updateFullTextButtonState();
-      try {
-        const fetchedContent = this.fullArticleLoading
-          ? await this.fetchFullArticleContent(item.link)
-          : "";
-        if (generation !== this.articleDisplayGeneration) return;
-        const hasFullArticleContent =
-          this.hasMeaningfulArticleContent(fetchedContent);
-
-        if (hasFullArticleContent) {
-          item.restrictedReason = undefined;
-        } else if (this.lastFullArticleFetchWasRestricted()) {
-          item.restrictedReason = RESTRICTED_ARTICLE_REASON;
-          // Toast notification removed for paywalled/restricted articles.
-        }
-
-        const displayTitle = hasFullArticleContent
-          ? this.extractDisplayTitleFromHtml(fetchedContent)
-          : null;
-        const fullContent = hasFullArticleContent
-          ? fetchedContent
-          : item.content || item.description || "";
-        this.currentFullContent = fullContent;
-        this.currentDisplayTitle = displayTitle || undefined;
-        this.currentContentIsFullArticle = hasFullArticleContent;
-        this.syncReaderTitle();
-        await this.displayArticle(item, fullContent);
-      } catch (error) {
-        if (generation === this.articleDisplayGeneration) throw error;
-      } finally {
-        if (generation === this.articleDisplayGeneration) {
-          this.fullArticleLoading = false;
-          this.updateFullTextButtonState();
-          this.updateBannerButtonsLoading(false);
-        }
-      }
+      // Feed content renders by default; full text loads on demand via
+      // loadFullArticle() from the toolbar or banner buttons.
+      const fullContent = item.content || item.description || "";
+      this.currentFullContent = fullContent;
+      this.currentContentIsFullArticle = false;
+      await this.displayArticle(item, fullContent);
     }
   }
 
@@ -1886,14 +1855,6 @@ export class ReaderView extends ItemView {
     }
 
     return this.prefersFeedContent(item, feedHtml);
-  }
-
-  private shouldSkipFullArticleFetch(item: FeedItem): boolean {
-    if (this.isVideoMediaItem(item)) {
-      return true;
-    }
-
-    return this.prefersFeedContent(item);
   }
 
   private isVideoMediaItem(item: FeedItem): boolean {
@@ -3408,24 +3369,6 @@ export class ReaderView extends ItemView {
     return text.trim().length > 200;
   }
 
-  private async fetchFullArticleContent(url: string): Promise<string> {
-    const generation = this.articleDisplayGeneration;
-    if (!url) {
-      this.currentFullContentFailureType = "none";
-      return "";
-    }
-
-    const proxyUrl =
-      this.settings.corsProxyEnabled && this.settings.corsProxyUrl
-        ? this.settings.corsProxyUrl
-        : undefined;
-    const result = await fetchFullArticleContentWithOutcome(url, proxyUrl);
-    if (generation === this.articleDisplayGeneration) {
-      this.currentFullContentFailureType = result.failureType;
-    }
-    return result.content;
-  }
-
   private showRestrictedNotice(item: FeedItem): void {
     if (this.lastRestrictedNoticeGuid === item.guid) {
       return;
@@ -3433,10 +3376,6 @@ export class ReaderView extends ItemView {
 
     new Notice(RESTRICTED_ARTICLE_NOTICE);
     this.lastRestrictedNoticeGuid = item.guid;
-  }
-
-  private lastFullArticleFetchWasRestricted(): boolean {
-    return this.currentFullContentFailureType === "restricted";
   }
 
   public async loadFullArticle(): Promise<boolean> {

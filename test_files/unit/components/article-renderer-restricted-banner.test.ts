@@ -52,6 +52,7 @@ describe("ArticleRenderer restricted-content handling", () => {
     vi.clearAllMocks();
     document.body.empty();
 
+    fetchFullArticleContentWithOutcomeMock.mockReset();
     fetchFullArticleContentWithOutcomeMock.mockResolvedValue({
       content: "",
       failureType: "restricted",
@@ -75,14 +76,11 @@ describe("ArticleRenderer restricted-content handling", () => {
   });
 
   it("shows a restricted notice and inline banner while keeping the feed excerpt", async () => {
-    const item = makeItem();
+    const item = makeItem({ restrictedReason: RESTRICTED_ARTICLE_REASON });
 
     await renderer.render(container, item);
 
-    expect(fetchFullArticleContentWithOutcomeMock).toHaveBeenCalledWith(
-      item.link,
-      undefined,
-    );
+    expect(fetchFullArticleContentWithOutcomeMock).not.toHaveBeenCalled();
     expect(item.restrictedReason).toBe(RESTRICTED_ARTICLE_REASON);
 
     const banner = container.querySelector(".rss-reader-paywall-banner");
@@ -104,6 +102,13 @@ describe("ArticleRenderer restricted-content handling", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(content.textContent).toContain("Fallback excerpt from feed.");
+
+    await renderer.loadFullArticle(container);
+
+    expect(fetchFullArticleContentWithOutcomeMock).toHaveBeenCalledWith(
+      item.link,
+      undefined,
+    );
   });
 
   it("skips restricted full-article fetch for media:content video items", async () => {

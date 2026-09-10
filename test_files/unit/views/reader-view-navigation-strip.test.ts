@@ -7,6 +7,19 @@ import {
 } from "../../../src/types/types";
 import { installObsidianDomPolyfills } from "../test-dom-polyfills";
 
+const fetchFullArticleContentWithOutcomeMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../../../src/utils/full-article-fetch", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../../src/utils/full-article-fetch")
+  >("../../../src/utils/full-article-fetch");
+
+  return {
+    ...actual,
+    fetchFullArticleContentWithOutcome: fetchFullArticleContentWithOutcomeMock,
+  };
+});
+
 installObsidianDomPolyfills();
 
 class MockLeaf {
@@ -21,7 +34,6 @@ class MockLeaf {
 type ReaderViewInternals = {
   contentEl: HTMLElement;
   readingContainer: HTMLElement;
-  fetchFullArticleContent: ReturnType<typeof vi.fn>;
   stripNavigationChromeFromHtml: (html: string) => string;
 };
 
@@ -54,6 +66,8 @@ describe("ReaderView full-article nav/breadcrumb stripping", () => {
   let mockSettings: RssDashboardSettings;
 
   beforeEach(async () => {
+    fetchFullArticleContentWithOutcomeMock.mockReset();
+
     const mockApp = {
       workspace: {
         getLeavesOfType: vi.fn().mockReturnValue([]),
@@ -92,11 +106,14 @@ describe("ReaderView full-article nav/breadcrumb stripping", () => {
       <p>${"x".repeat(260)}</p>
     `;
 
-    getInternals(readerView).fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(html);
-
     await readerView.displayItem(makeItem());
+
+    // Full text loads on demand since the behavior change.
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
+      content: html,
+      failureType: "none",
+    });
+    await readerView.loadFullArticle();
 
     const container = getInternals(readerView).readingContainer;
     const content = container.querySelector<HTMLElement>(
@@ -121,11 +138,14 @@ describe("ReaderView full-article nav/breadcrumb stripping", () => {
       <p>tail</p>
     `;
 
-    getInternals(readerView).fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(html);
-
     await readerView.displayItem(makeItem());
+
+    // Full text loads on demand since the behavior change.
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
+      content: html,
+      failureType: "none",
+    });
+    await readerView.loadFullArticle();
 
     const container = getInternals(readerView).readingContainer;
     const content = container.querySelector<HTMLElement>(

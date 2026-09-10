@@ -7,6 +7,19 @@ import {
 } from "../../../src/types/types";
 import { installObsidianDomPolyfills } from "../test-dom-polyfills";
 
+const fetchFullArticleContentWithOutcomeMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../../../src/utils/full-article-fetch", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../../src/utils/full-article-fetch")
+  >("../../../src/utils/full-article-fetch");
+
+  return {
+    ...actual,
+    fetchFullArticleContentWithOutcome: fetchFullArticleContentWithOutcomeMock,
+  };
+});
+
 installObsidianDomPolyfills();
 
 class MockLeaf {
@@ -23,7 +36,6 @@ class MockLeaf {
 
 type ReaderViewInternals = {
   contentEl: HTMLElement;
-  fetchFullArticleContent: ReturnType<typeof vi.fn>;
 };
 
 function getInternals(view: ReaderView): ReaderViewInternals {
@@ -56,6 +68,8 @@ describe("ReaderView tab title sync", () => {
   let mockSettings: RssDashboardSettings;
 
   beforeEach(async () => {
+    fetchFullArticleContentWithOutcomeMock.mockReset();
+
     const mockApp = {
       workspace: {
         getLeavesOfType: vi.fn().mockReturnValue([]),
@@ -90,18 +104,15 @@ describe("ReaderView tab title sync", () => {
       guid: "guid-b",
     });
 
-    getInternals(readerView).fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue("");
-
     await readerView.displayItem(itemA);
     expect(readerView.getDisplayText()).toBe("Article A");
-    expect(mockLeaf.updateHeader).toHaveBeenCalledTimes(2);
+    // Opening an article syncs the title once; no fetch runs on open anymore.
+    expect(mockLeaf.updateHeader).toHaveBeenCalledTimes(1);
 
     await readerView.displayItem(itemB);
 
     expect(readerView.getDisplayText()).toBe("Article B");
-    expect(mockLeaf.updateHeader).toHaveBeenCalledTimes(4);
+    expect(mockLeaf.updateHeader).toHaveBeenCalledTimes(2);
   });
 
   it("refreshes the tab title again when fetched full article content provides a better title", async () => {
@@ -111,15 +122,21 @@ describe("ReaderView tab title sync", () => {
       guid: "guid-full",
     });
 
-    getInternals(readerView).fetchFullArticleContent = vi.fn()
-      .mockResolvedValue(`
-      <h1>Fetched Full Article Title</h1>
-      <p>${"x".repeat(260)}</p>
-    `);
-
     await readerView.displayItem(item);
 
+    // Full text loads on demand since the behavior change.
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
+      content: `
+      <h1>Fetched Full Article Title</h1>
+      <p>${"x".repeat(260)}</p>
+    `,
+      failureType: "none",
+    });
+    await readerView.loadFullArticle();
+
     expect(readerView.getDisplayText()).toBe("Fetched Full Article Title");
+    // Once on open (feed title) and once again after the manual full-text
+    // load surfaces the better page title.
     expect(mockLeaf.updateHeader).toHaveBeenCalledTimes(2);
   });
 });

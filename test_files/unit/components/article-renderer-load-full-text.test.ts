@@ -8,6 +8,7 @@ import {
 } from "../../../src/types/types";
 import { installObsidianDomPolyfills } from "../test-dom-polyfills";
 import { Component } from "obsidian";
+import { RESTRICTED_ARTICLE_REASON } from "../../../src/utils/full-article-fetch";
 
 const fetchFullArticleContentWithOutcomeMock = vi.hoisted(() => vi.fn());
 
@@ -68,6 +69,7 @@ describe("ArticleRenderer load full text with Readability", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    fetchFullArticleContentWithOutcomeMock.mockReset();
     document.body.empty();
 
     const mockApp = {
@@ -98,10 +100,11 @@ describe("ArticleRenderer load full text with Readability", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps a single request and article while the initial fetch is pending", async () => {
+  it("keeps a single request while a manual load is pending", async () => {
+    await renderer.render(container, makeItem());
     const fetch = deferredFetch();
     fetchFullArticleContentWithOutcomeMock.mockReturnValueOnce(fetch.promise);
-    const rendering = renderer.render(container, makeItem());
+    const manual = renderer.loadFullArticle();
     expect(renderer.isFullArticleLoading()).toBe(true);
     expect(await renderer.loadFullArticle()).toBe(false);
     expect(fetchFullArticleContentWithOutcomeMock).toHaveBeenCalledTimes(1);
@@ -109,90 +112,93 @@ describe("ArticleRenderer load full text with Readability", () => {
       content: "<p>" + "Initial full article. ".repeat(20) + "</p>",
       failureType: "none",
     });
-    await rendering;
+    expect(await manual).toBe(true);
     expect(container.querySelectorAll(".rss-reader-item-title")).toHaveLength(
       1,
     );
     expect(renderer.isFullArticleLoading()).toBe(false);
   });
 
-  it("ignores an earlier automatic fetch after another article starts loading", async () => {
-    const first = deferredFetch();
-    const second = deferredFetch();
-    fetchFullArticleContentWithOutcomeMock
-      .mockReturnValueOnce(first.promise)
-      .mockReturnValueOnce(second.promise);
-    const firstRendering = renderer.render(container, makeItem());
-    const next = makeItem({ guid: "next", title: "Next article" });
-    const secondRendering = renderer.render(container, next);
-    onStateChange.mockClear();
-    first.resolve({
-      content: "<p>" + "Stale content. ".repeat(30) + "</p>",
+  it("renders feed content without fetching full text on open", async () => {
+    // Tripwire: any automatic fetch would render this content and fail the test.
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValue({
+      content: "<p>" + "Auto loaded content. ".repeat(20) + "</p>",
       failureType: "none",
     });
-    await firstRendering;
-    expect(container.textContent).not.toContain("Stale content");
+
+    const item = makeItem({
+      description: "<p>Feed summary body.</p>",
+      content: "",
+    });
+    await renderer.render(container, item);
+
+    expect(fetchFullArticleContentWithOutcomeMock).not.toHaveBeenCalled();
+    expect(
+      container.querySelector(".rss-reader-article-content")?.textContent,
+    ).toContain("Feed summary body.");
     expect(renderer.isContentFullArticle()).toBe(false);
-    expect(renderer.isFullArticleLoading()).toBe(true);
-    expect(onStateChange).not.toHaveBeenCalled();
-    second.resolve({ content: "", failureType: "none" });
-    await secondRendering;
-    expect(container.querySelector(".rss-reader-item-title")?.textContent).toBe(
-      "Next article",
-    );
+    expect(onStateChange).toHaveBeenCalledWith(false, false);
+
+    const loadBtn = container.querySelector(
+      ".rss-reader-excerpt-banner .rss-reader-load-fulltext-btn",
+    ) as HTMLElement;
+    expect(loadBtn).not.toBeNull();
+
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
+      content: "<p>" + "Manual full article content. ".repeat(20) + "</p>",
+      failureType: "none",
+    });
+    loadBtn.click();
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector(".rss-reader-article-content")?.textContent,
+      ).toContain("Manual full article content");
+    });
+    expect(fetchFullArticleContentWithOutcomeMock).toHaveBeenCalledTimes(1);
+    expect(renderer.isContentFullArticle()).toBe(true);
   });
 
   it.each(["success", "failure"])(
-    "ignores a stale manual %s without releasing the next article's loading state",
+    "ignores a stale manual %s from a previously opened article",
     async (outcome) => {
-      fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
-        content: "",
-        failureType: "none",
-      });
       const firstItem = makeItem();
       await renderer.render(container, firstItem);
-      const first = deferredFetch();
-      const second = deferredFetch();
-      fetchFullArticleContentWithOutcomeMock.mockReturnValueOnce(first.promise);
+      const stale = deferredFetch();
+      fetchFullArticleContentWithOutcomeMock.mockReturnValueOnce(stale.promise);
       const manual = renderer.loadFullArticle();
-      fetchFullArticleContentWithOutcomeMock.mockReturnValueOnce(
-        second.promise,
-      );
       const next = makeItem({ guid: "next", title: "Next article" });
-      const rendering = renderer.render(container, next);
+      await renderer.render(container, next);
       onStateChange.mockClear();
       if (outcome === "success") {
-        first.resolve({
+        stale.resolve({
           content: "<p>" + "Stale manual content. ".repeat(20) + "</p>",
           failureType: "none",
         });
       } else {
-        first.reject(new Error("Old request failed"));
+        stale.reject(new Error("Old request failed"));
       }
       expect(await manual).toBe(false);
       expect(container.textContent).not.toContain("Stale manual content");
       expect(renderer.isContentFullArticle()).toBe(false);
-      expect(renderer.isFullArticleLoading()).toBe(true);
+      expect(renderer.isFullArticleLoading()).toBe(false);
       expect(onStateChange).not.toHaveBeenCalled();
-      expect(await renderer.loadFullArticle()).toBe(false);
-      second.resolve({ content: "", failureType: "none" });
-      await rendering;
       expect(renderer.getCurrentItem()).toBe(next);
     },
   );
 
   it("does not render or notify after the renderer is destroyed during a fetch", async () => {
+    await renderer.render(container, makeItem());
     const fetch = deferredFetch();
     fetchFullArticleContentWithOutcomeMock.mockReturnValueOnce(fetch.promise);
-    const rendering = renderer.render(container, makeItem());
+    const manual = renderer.loadFullArticle();
     renderer.destroy();
     onStateChange.mockClear();
     fetch.resolve({
       content: "<p>" + "Late content. ".repeat(30) + "</p>",
       failureType: "none",
     });
-    await rendering;
-    expect(container.textContent).toBe("");
+    expect(await manual).toBe(false);
+    expect(container.textContent).not.toContain("Late content");
     expect(onStateChange).not.toHaveBeenCalled();
     expect(renderer.getCurrentItem()).toBeNull();
   });
@@ -252,12 +258,7 @@ describe("ArticleRenderer load full text with Readability", () => {
   });
 
   it("includes a load full text button in the restricted paywall banner", async () => {
-    fetchFullArticleContentWithOutcomeMock.mockResolvedValue({
-      content: "",
-      failureType: "restricted",
-    });
-
-    const item = makeItem();
+    const item = makeItem({ restrictedReason: RESTRICTED_ARTICLE_REASON });
     await renderer.render(container, item);
 
     const banner = container.querySelector(".rss-reader-paywall-banner");
@@ -292,12 +293,7 @@ describe("ArticleRenderer load full text with Readability", () => {
   });
 
   it("loads full article and updates view when clicking load full text button", async () => {
-    fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
-      content: "",
-      failureType: "restricted",
-    });
-
-    const item = makeItem();
+    const item = makeItem({ restrictedReason: RESTRICTED_ARTICLE_REASON });
     await renderer.render(container, item);
 
     const banner = container.querySelector(".rss-reader-paywall-banner");
@@ -337,7 +333,11 @@ describe("ArticleRenderer load full text with Readability", () => {
 
     const item = makeItem();
     await renderer.render(container, item);
-    expect(renderer.isContentFullArticle()).toBe(true);
+    expect(renderer.isContentFullArticle()).toBe(false);
+    expect(onStateChange).toHaveBeenCalledWith(false, false);
+    onStateChange.mockClear();
+
+    expect(await renderer.loadFullArticle(container)).toBe(true);
     expect(onStateChange).toHaveBeenCalledWith(true, false);
     onStateChange.mockClear();
 

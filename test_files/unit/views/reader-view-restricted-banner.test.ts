@@ -58,6 +58,7 @@ describe("ReaderView restricted-content handling", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    fetchFullArticleContentWithOutcomeMock.mockReset();
     document.body.innerHTML = "";
 
     fetchFullArticleContentWithOutcomeMock.mockResolvedValue({
@@ -92,16 +93,14 @@ describe("ReaderView restricted-content handling", () => {
   });
 
   it("shows a restricted notice and banner while keeping the feed excerpt", async () => {
-    const item = makeItem();
+    const item = makeItem({
+      // displayItem no longer fetches on open; a prior restricted attempt is
+      // surfaced through the persisted reason that drives the paywall banner.
+      restrictedReason: RESTRICTED_ARTICLE_REASON,
+    });
 
     await readerView.onOpen();
     await readerView.displayItem(item);
-
-    expect(fetchFullArticleContentWithOutcomeMock).toHaveBeenCalledWith(
-      item.link,
-      undefined,
-    );
-    expect(item.restrictedReason).toBe(RESTRICTED_ARTICLE_REASON);
 
     const readingContainer = (
       readerView as unknown as { readingContainer: HTMLElement }
@@ -120,6 +119,19 @@ describe("ReaderView restricted-content handling", () => {
       content!.compareDocumentPosition(banner as Node) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    expect(content?.textContent).toContain("Reader fallback excerpt.");
+
+    // Manually retrying the fetch exercises the same request shape, and the
+    // banner plus feed excerpt stay in place when the outcome stays restricted.
+    await readerView.loadFullArticle();
+    expect(fetchFullArticleContentWithOutcomeMock).toHaveBeenCalledWith(
+      item.link,
+      undefined,
+    );
+    expect(item.restrictedReason).toBe(RESTRICTED_ARTICLE_REASON);
+    expect(
+      readingContainer.querySelector(".rss-reader-paywall-banner"),
+    ).not.toBeNull();
     expect(content?.textContent).toContain("Reader fallback excerpt.");
   });
 

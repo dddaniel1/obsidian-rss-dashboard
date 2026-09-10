@@ -7,6 +7,19 @@ import {
 } from "../../../src/types/types";
 import { installObsidianDomPolyfills } from "../test-dom-polyfills";
 
+const fetchFullArticleContentWithOutcomeMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../../../src/utils/full-article-fetch", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../../src/utils/full-article-fetch")
+  >("../../../src/utils/full-article-fetch");
+
+  return {
+    ...actual,
+    fetchFullArticleContentWithOutcome: fetchFullArticleContentWithOutcomeMock,
+  };
+});
+
 // Install polyfills globally for the test
 installObsidianDomPolyfills();
 
@@ -23,12 +36,28 @@ class MockLeaf {
 type ReaderViewHarness = {
   contentEl: HTMLElement;
   readingContainer: HTMLElement;
-  fetchFullArticleContent: ReturnType<typeof vi.fn>;
   buildReaderSaveMarkdown(item: FeedItem): string;
 };
 
 function getHarness(view: ReaderView): ReaderViewHarness {
   return view as unknown as ReaderViewHarness;
+}
+
+// Simulate a full-article fetch followed by the manual "Load full text"
+// action, then wait for the reader to re-render with the fetched HTML.
+async function loadFetchedFullArticle(
+  view: ReaderView,
+  fetchedHtml: string,
+): Promise<void> {
+  fetchFullArticleContentWithOutcomeMock.mockReset();
+  fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
+    content: fetchedHtml,
+    failureType: "none",
+  });
+  await view.loadFullArticle();
+  await vi.waitFor(() => {
+    expect(fetchFullArticleContentWithOutcomeMock).toHaveBeenCalledTimes(1);
+  });
 }
 
 describe("ReaderView Image Duplication", () => {
@@ -150,12 +179,9 @@ describe("ReaderView Image Duplication", () => {
       mediaType: "article",
       saved: false,
     };
-    getHarness(readerView).fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(fetchedHtml);
-
     await readerView.onOpen();
     await readerView.displayItem(item);
+    await loadFetchedFullArticle(readerView, fetchedHtml);
 
     const body = getHarness(readerView).readingContainer.querySelector<HTMLElement>(
       ".rss-reader-article-content",
@@ -338,10 +364,9 @@ describe("ReaderView – summary de-duplication", () => {
     );
 
     getHarness(readerView).contentEl = document.createElement("div");
-    // Prevent outbound HTTP — content comes from item fields only
-    getHarness(readerView).fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue("");
+    // Prevent outbound HTTP — fetches go through the mocked module, and
+    // displayItem renders feed content without fetching.
+    fetchFullArticleContentWithOutcomeMock.mockReset();
     await readerView.onOpen();
   });
 
@@ -415,11 +440,8 @@ describe("ReaderView – summary de-duplication", () => {
       link: "https://arstechnica.com/tech-policy/2026/04/example/",
     });
 
-    getHarness(readerView).fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(fetchedHtml);
-
     await readerView.displayItem(item);
+    await loadFetchedFullArticle(readerView, fetchedHtml);
 
     const rc = getHarness(readerView).readingContainer;
     const callout = rc.querySelector(".rss-reader-description-callout");
@@ -465,18 +487,18 @@ describe("ReaderView – summary de-duplication", () => {
       content: feedHtml,
     });
 
-    getHarness(readerView).fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue("<p>Fetched content that should not be used.</p>");
+    fetchFullArticleContentWithOutcomeMock.mockReset();
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValue({
+      content: "<p>Fetched content that should not be used.</p>",
+      failureType: "none",
+    });
 
     await readerView.displayItem(item);
 
     const rc = getHarness(readerView).readingContainer;
     const body = rc.querySelector<HTMLElement>(".rss-reader-article-content");
 
-    expect(
-      getHarness(readerView).fetchFullArticleContent,
-    ).not.toHaveBeenCalled();
+    expect(fetchFullArticleContentWithOutcomeMock).not.toHaveBeenCalled();
     expect(body?.textContent || "").toContain("Feed article intro.");
     expect(rc.querySelector(`img[src="${decodedFeedImageUrl}"]`)).toBeTruthy();
     expect(body?.textContent || "").not.toContain(
@@ -533,11 +555,8 @@ describe("ReaderView – summary de-duplication", () => {
       link: "https://www.astralcodexten.com/p/the-sigmoids-wont-save-you",
     });
 
-    getHarness(readerView).fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(fetchedHtml);
-
     await readerView.displayItem(item);
+    await loadFetchedFullArticle(readerView, fetchedHtml);
 
     const rc = getHarness(readerView).readingContainer;
     const heroImg = rc.querySelector<HTMLImageElement>(
@@ -665,10 +684,8 @@ describe("ReaderView – summary de-duplication", () => {
       link: "https://arstechnica.com/tech-policy/2026/04/example/",
     });
 
-    getHarness(readerView).fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(fetchedHtml);
     await readerView.displayItem(item);
+    await loadFetchedFullArticle(readerView, fetchedHtml);
 
     const body = getHarness(
       readerView,
@@ -713,10 +730,8 @@ describe("ReaderView – summary de-duplication", () => {
       link: "https://arstechnica.com/tech-policy/2026/04/example/",
     });
 
-    getHarness(readerView).fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(fetchedHtml);
     await readerView.displayItem(item);
+    await loadFetchedFullArticle(readerView, fetchedHtml);
 
     const body = getHarness(readerView).readingContainer.querySelector(
       ".rss-reader-article-content",
@@ -779,10 +794,8 @@ describe("ReaderView – summary de-duplication", () => {
       link: "https://arstechnica.com/ai/2026/04/google-unveils-two-new-tpus-designed-for-the-agentic-era/",
     });
 
-    getHarness(readerView).fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(fetchedHtml);
     await readerView.displayItem(item);
+    await loadFetchedFullArticle(readerView, fetchedHtml);
 
     const rc = getHarness(readerView).readingContainer;
     const body = rc.querySelector(".rss-reader-article-content") as HTMLElement;

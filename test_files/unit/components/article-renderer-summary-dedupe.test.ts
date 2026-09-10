@@ -17,7 +17,6 @@ import {
   beforeEach,
   afterEach,
   vi,
-  type Mock,
 } from "vitest";
 import { ArticleRenderer } from "../../../src/components/article-renderer";
 import {
@@ -27,6 +26,19 @@ import {
 } from "../../../src/types/types";
 import { installObsidianDomPolyfills } from "../test-dom-polyfills";
 import * as obsidian from "obsidian";
+
+const fetchFullArticleContentWithOutcomeMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../../../src/utils/full-article-fetch", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../../src/utils/full-article-fetch")
+  >("../../../src/utils/full-article-fetch");
+
+  return {
+    ...actual,
+    fetchFullArticleContentWithOutcome: fetchFullArticleContentWithOutcomeMock,
+  };
+});
 
 installObsidianDomPolyfills();
 
@@ -50,11 +62,6 @@ function makeItem(overrides: Partial<FeedItem> = {}): FeedItem {
   };
 }
 
-interface ArticleRendererWithPrivate {
-  render(container: HTMLElement, item: FeedItem): Promise<void>;
-  fetchFullArticleContent: Mock<(url?: string) => Promise<string>>;
-}
-
 describe("ArticleRenderer – summary de-duplication", () => {
   let renderer: ArticleRenderer;
   let container: HTMLElement;
@@ -73,9 +80,9 @@ describe("ArticleRenderer – summary de-duplication", () => {
       onArticleUpdate: vi.fn(),
     });
 
-    // Prevent outbound HTTP — content comes from item fields only
-    const rendererInternal = renderer as unknown as ArticleRendererWithPrivate;
-    rendererInternal.fetchFullArticleContent = vi.fn().mockResolvedValue("");
+    // Full content is fetched only through the explicit loadFullArticle()
+    // calls below; the module mock keeps those from touching the network.
+    fetchFullArticleContentWithOutcomeMock.mockReset();
 
     container = document.body.appendChild(document.createElement("div"));
   });
@@ -120,12 +127,14 @@ describe("ArticleRenderer – summary de-duplication", () => {
       description: "Short feed summary",
       content: "",
     });
-    const rendererInternal = renderer as unknown as ArticleRendererWithPrivate;
-    rendererInternal.fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(fetchedHtml);
+
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValue({
+      content: fetchedHtml,
+      failureType: "none",
+    });
 
     await renderer.render(container, item);
+    await renderer.loadFullArticle(container);
 
     const body = container.querySelector<HTMLElement>(
       ".rss-reader-article-content",
@@ -204,12 +213,13 @@ describe("ArticleRenderer – summary de-duplication", () => {
       link: "https://arstechnica.com/tech-policy/2026/04/example/",
     });
 
-    const rendererInternal = renderer as unknown as ArticleRendererWithPrivate;
-    rendererInternal.fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(fetchedHtml);
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValue({
+      content: fetchedHtml,
+      failureType: "none",
+    });
 
     await renderer.render(container, item);
+    await renderer.loadFullArticle(container);
 
     const callout = container.querySelector(".rss-reader-description-callout");
     const heroImg = container.querySelector<HTMLImageElement>(
@@ -345,12 +355,13 @@ describe("ArticleRenderer – summary de-duplication", () => {
       link: "https://arstechnica.com/ai/2026/04/google-unveils-two-new-tpus-designed-for-the-agentic-era/",
     });
 
-    const rendererInternal = renderer as unknown as ArticleRendererWithPrivate;
-    rendererInternal.fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(fetchedHtml);
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValue({
+      content: fetchedHtml,
+      failureType: "none",
+    });
 
     await renderer.render(container, item);
+    await renderer.loadFullArticle(container);
 
     const body = container.querySelector<HTMLElement>(
       ".rss-reader-article-content",
@@ -413,12 +424,13 @@ describe("ArticleRenderer – summary de-duplication", () => {
       link: "https://www.astralcodexten.com/p/the-sigmoids-wont-save-you",
     });
 
-    const rendererInternal = renderer as unknown as ArticleRendererWithPrivate;
-    rendererInternal.fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(fetchedHtml);
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValue({
+      content: fetchedHtml,
+      failureType: "none",
+    });
 
     await renderer.render(container, item);
+    await renderer.loadFullArticle(container);
 
     const body = container.querySelector<HTMLElement>(
       ".rss-reader-article-content",
@@ -496,12 +508,13 @@ describe("ArticleRenderer – summary de-duplication", () => {
       link: "https://www.astralcodexten.com/p/the-sigmoids-wont-save-you",
     });
 
-    const rendererInternal = renderer as unknown as ArticleRendererWithPrivate;
-    rendererInternal.fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue(fetchedHtml);
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValue({
+      content: fetchedHtml,
+      failureType: "none",
+    });
 
     await renderer.render(container, item);
+    await renderer.loadFullArticle(container);
 
     const body = container.querySelector<HTMLElement>(
       ".rss-reader-article-content",
@@ -549,10 +562,10 @@ describe("ArticleRenderer – summary de-duplication", () => {
       content: feedHtml,
     });
 
-    const rendererInternal = renderer as unknown as ArticleRendererWithPrivate;
-    rendererInternal.fetchFullArticleContent = vi
-      .fn()
-      .mockResolvedValue("<p>Fetched content that should not be used.</p>");
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValue({
+      content: "<p>Fetched content that should not be used.</p>",
+      failureType: "none",
+    });
 
     await renderer.render(container, item);
 
@@ -560,7 +573,7 @@ describe("ArticleRenderer – summary de-duplication", () => {
       ".rss-reader-article-content",
     );
 
-    expect(rendererInternal.fetchFullArticleContent).not.toHaveBeenCalled();
+    expect(fetchFullArticleContentWithOutcomeMock).not.toHaveBeenCalled();
     expect(body?.textContent || "").toContain("Feed article intro.");
     expect(
       container.querySelector(`img[src="${decodedFeedImageUrl}"]`),

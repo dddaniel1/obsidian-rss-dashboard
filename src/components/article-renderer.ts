@@ -136,7 +136,7 @@ export class ArticleRenderer {
     item: FeedItem,
     relatedItems: FeedItem[] = [],
   ): Promise<void> {
-    const generation = ++this.renderGeneration;
+    ++this.renderGeneration;
     this.fullArticleLoadingNotice?.hide();
     this.fullArticleLoadingNotice = null;
     this.fullArticleLoading = false;
@@ -175,43 +175,13 @@ export class ArticleRenderer {
       }
       await this.displayPodcast(container, item);
     } else {
-      const skipFetch = this.shouldSkipFullArticleFetch(item);
-      this.fullArticleLoading = !skipFetch && Boolean(item.link);
-      this.onFullArticleStateChange?.(false, this.fullArticleLoading);
-      try {
-        const fetchedContent = skipFetch
-          ? ""
-          : await this.fetchFullArticleContent(item.link);
-        if (generation !== this.renderGeneration) return;
-        const hasFullArticleContent =
-          this.hasMeaningfulArticleContent(fetchedContent);
-
-        if (hasFullArticleContent) {
-          item.restrictedReason = undefined;
-        } else if (this.lastFullArticleFetchWasRestricted()) {
-          item.restrictedReason = RESTRICTED_ARTICLE_REASON;
-          this.showRestrictedNotice(item);
-        }
-
-        const displayTitle = hasFullArticleContent
-          ? this.extractDisplayTitleFromHtml(fetchedContent)
-          : null;
-        const fullContent = hasFullArticleContent
-          ? fetchedContent
-          : item.content || item.description || "";
-        this.currentFullContent = fullContent;
-        this.currentDisplayTitle = displayTitle || undefined;
-        this.currentContentIsFullArticle = hasFullArticleContent;
-        await this.displayArticle(container, item, fullContent);
-      } finally {
-        if (generation === this.renderGeneration) {
-          this.fullArticleLoading = false;
-          this.onFullArticleStateChange?.(
-            this.currentContentIsFullArticle,
-            false,
-          );
-        }
-      }
+      // Feed content renders by default; full text loads on demand via
+      // loadFullArticle() from the toolbar or banner buttons.
+      const fullContent = item.content || item.description || "";
+      this.currentFullContent = fullContent;
+      this.currentContentIsFullArticle = false;
+      this.onFullArticleStateChange?.(false, false);
+      await this.displayArticle(container, item, fullContent);
     }
   }
 
@@ -779,39 +749,6 @@ export class ArticleRenderer {
 
   // --- Helper methods (extracted from ReaderView) ---
 
-  private async fetchFullArticleContent(url?: string): Promise<string> {
-    const generation = this.renderGeneration;
-    if (!url) {
-      this.currentFullContentFailureType = "none";
-      return "";
-    }
-
-    try {
-      const proxyUrl = this.settings.corsProxyEnabled
-        ? this.settings.corsProxyUrl
-        : undefined;
-      const result = await fetchFullArticleContentWithOutcome(url, proxyUrl);
-      if (generation === this.renderGeneration) {
-        this.currentFullContentFailureType = result.failureType;
-      }
-      return result.content;
-    } catch {
-      if (generation === this.renderGeneration) {
-        this.currentFullContentFailureType = "network";
-      }
-      return "";
-    }
-  }
-
-  private showRestrictedNotice(item: FeedItem): void {
-    // Toast notification removed for paywalled/restricted articles.
-    this.lastRestrictedNoticeGuid = item.guid;
-  }
-
-  private lastFullArticleFetchWasRestricted(): boolean {
-    return this.currentFullContentFailureType === "restricted";
-  }
-
   public async loadFullArticle(
     targetContainer?: HTMLElement,
   ): Promise<boolean> {
@@ -917,57 +854,6 @@ export class ArticleRenderer {
       .replace(/\s+/g, " ")
       .trim();
     return text.length > 200;
-  }
-
-  private shouldSkipFullArticleFetch(item: FeedItem): boolean {
-    if (this.isVideoMediaItem(item)) return true;
-    return this.prefersFeedContent(item);
-  }
-
-  private isVideoMediaItem(item: FeedItem): boolean {
-    return isLikelyVideoItem(item);
-  }
-
-  private prefersFeedContent(item: FeedItem): boolean {
-    if (this.isTweetLikeItem(item)) return true;
-
-    if (item.link) {
-      try {
-        const host = new URL(item.link).hostname.toLowerCase();
-        if (this.isFeedContentPreferredHost(host)) {
-          return true;
-        }
-      } catch {
-        // Fall through to markup-based detection.
-      }
-    }
-
-    const feedHtml = (item.content || item.description || "").trim();
-    return this.hasSubstackRichFeedMarkup(feedHtml);
-  }
-
-  private isFeedContentPreferredHost(host: string): boolean {
-    const preferred = [
-      "kite.kagi.com",
-      "news.kagi.com",
-      "aeon.co",
-      "substack.com",
-    ];
-    return (
-      preferred.some((p) => host === p || host.endsWith("." + p)) ||
-      host.toLowerCase().includes("nitter")
-    );
-  }
-
-  private hasSubstackRichFeedMarkup(html: string): boolean {
-    if (!html) return false;
-
-    const lower = html.toLowerCase();
-    return (
-      lower.includes('data-component-name="image2todom"') ||
-      lower.includes('class="image-link image2 is-viewable-img"') ||
-      lower.includes("substackcdn.com/image/fetch/")
-    );
   }
 
   private isTweetLikeItem(item: FeedItem): boolean {
