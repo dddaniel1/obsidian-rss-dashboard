@@ -1,6 +1,7 @@
 ﻿import { Notice } from "obsidian";
 import type RssDashboardPlugin from "../../../main";
 import type { FeedItem, Folder, RssDashboardSettings } from "../../types/types";
+import { MediaService } from "../media-service";
 import { SyncError } from "./sync-provider";
 import type { SyncRuntime } from "./sync-runtime";
 import type { SyncState } from "./sync-service";
@@ -41,7 +42,7 @@ export class DashboardSyncSource {
         ...article, guid: "freshrss:" + state.accountId + ":" + article.id,
         feedUrl: feed.url, feedTitle: feed.title, description: article.content,
         pubDate: new Date(article.published * 1000).toISOString(), coverImage: "",
-        mediaType: article.audioUrl ? "podcast" : article.videoUrl ? "video" : "article",
+        ...describeFreshRssArticleMedia(article),
       })),
     }));
     if (this.settings.feeds.some((feed) => feed.folder === "Uncategorized") && !this.settings.folders.some((folder) => folder.name === "Uncategorized")) {
@@ -175,4 +176,12 @@ export class DashboardSyncSource {
     plugin.openTagsSettings = this.host.openTagsSettings.bind(this.host);
     return plugin;
   }
+}
+
+function describeFreshRssArticleMedia(article: { link: string; audioUrl?: string; videoUrl?: string }): Partial<FeedItem> {
+  const videoId = article.videoUrl ? undefined : MediaService.extractYouTubeVideoId(article.link);
+  if (article.audioUrl) return { mediaType: "podcast" };
+  if (article.videoUrl) return { mediaType: "video" };
+  if (videoId) return { mediaType: "video", videoId };
+  return { mediaType: "article" };
 }

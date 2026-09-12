@@ -29,6 +29,7 @@
 - Fixed full-text loading races in both readers: automatic and manual loads no longer overlap, and responses from articles that were switched away from or closed cannot overwrite the current content or loading state.
 - Made full-text loading toggleable in both readers: clicking the loaded full-text action again restores the original feed content and title without refetching.
 - Fixed FreshRSS-synchronized podcast and video feeds being shown as plain articles by keeping media enclosures and marking those items as podcast or video so the reader renders the built-in players.
+- Fixed FreshRSS-synced YouTube articles not being recognized as videos: articles whose link points to a YouTube video now render with the embedded video player.
 - Fixed dashboard header Mark all read/unread controls so they update and persist the stored articles in the current filtered view. [GH Issue #185](https://github.com/amatya-aditya/obsidian-rss-dashboard/issues/185)
 - Removed duplicate close controls from mobile Dashboard and Discover sidebars, retaining Obsidian's standard modal header close button.
 - Standardized sidebar and mobile navigation scrolling on native Obsidian scrollbars, removing the retired scrollbar-visibility preference and custom scrollbar styling in order to improve Community Plugin compliance score.
