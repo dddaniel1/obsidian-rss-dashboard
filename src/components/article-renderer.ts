@@ -418,8 +418,6 @@ export class ArticleRenderer {
 
     if (item.restrictedReason) {
       this.renderRestrictedBanner(container, item);
-    } else if (this.shouldRenderExcerptBanner(item)) {
-      this.renderExcerptBanner(container, item);
     } else if (this.shouldRenderVideoSourceBanner(item)) {
       this.renderVideoSourceBanner(container, item);
     }
@@ -458,58 +456,6 @@ export class ArticleRenderer {
     const link = actions.createEl("a", {
       cls: "rss-reader-paywall-banner-link",
       text: RESTRICTED_ARTICLE_LINK_TEXT,
-      href: item.link,
-    });
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-  }
-
-  private shouldRenderExcerptBanner(item: FeedItem): boolean {
-    if (
-      this.currentContentIsFullArticle ||
-      !item.link ||
-      item.mediaType === "video" ||
-      item.mediaType === "podcast" ||
-      isLikelyVideoItem(item) ||
-      this.isTweetLikeItem(item)
-    ) {
-      return false;
-    }
-    const textLen = (item.content || item.description || "")
-      .replace(/<[^>]*>/g, "")
-      .trim().length;
-    return textLen < 1500;
-  }
-
-  private renderExcerptBanner(container: HTMLElement, item: FeedItem): void {
-    const banner = container.createDiv({
-      cls: "rss-reader-inline-banner rss-reader-excerpt-banner",
-    });
-    banner.createDiv({
-      cls: "rss-reader-excerpt-banner-text",
-      text: "Showing feed summary. Full article not loaded.",
-    });
-
-    if (!item.link) {
-      return;
-    }
-
-    const actions = banner.createDiv({
-      cls: "rss-reader-banner-actions",
-    });
-
-    const loadButton = actions.createEl("button", {
-      cls: "rss-reader-banner-action-btn rss-reader-load-fulltext-btn mod-cta",
-      text: "Load full text",
-    });
-    loadButton.addEventListener("click", (e) => {
-      e.stopPropagation();
-      void this.loadFullArticle(container);
-    });
-
-    const link = actions.createEl("a", {
-      cls: "rss-reader-paywall-banner-link rss-reader-excerpt-banner-link",
-      text: "Open original",
       href: item.link,
     });
     link.target = "_blank";

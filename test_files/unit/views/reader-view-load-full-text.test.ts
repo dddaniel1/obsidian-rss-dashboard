@@ -155,8 +155,8 @@ describe("ReaderView load full text with Readability", () => {
         ?.textContent,
     ).toContain("Feed summary body.");
 
-    const loadBtn = readingContainer.querySelector(
-      ".rss-reader-excerpt-banner .rss-reader-load-fulltext-btn",
+    const loadBtn = readerView.contentEl.querySelector(
+      ".rss-reader-fulltext-button",
     ) as HTMLElement;
     expect(loadBtn).not.toBeNull();
 
@@ -324,7 +324,7 @@ describe("ReaderView load full text with Readability", () => {
     expect(loadBtn?.textContent).toBe("Load full text");
   });
 
-  it("renders an excerpt banner when full article was not fetched and feed only has summary", async () => {
+  it("renders feed summaries without an excerpt notice or open original link", async () => {
     fetchFullArticleContentWithOutcomeMock.mockResolvedValue({
       content: "",
       failureType: "none",
@@ -344,14 +344,10 @@ describe("ReaderView load full text with Readability", () => {
     const excerptBanner = readingContainer.querySelector(
       ".rss-reader-excerpt-banner",
     );
-    expect(excerptBanner).not.toBeNull();
-    expect(excerptBanner?.textContent).toContain("Showing feed summary");
-
-    const loadBtn = excerptBanner?.querySelector(
-      ".rss-reader-load-fulltext-btn",
-    );
-    expect(loadBtn).not.toBeNull();
-    expect(loadBtn?.textContent).toBe("Load full text");
+    expect(excerptBanner).toBeNull();
+    expect(readingContainer.textContent).toContain("Only an excerpt.");
+    expect(readingContainer.textContent).not.toContain("Showing feed summary");
+    expect(readingContainer.textContent).not.toContain("Open original");
   });
 
   it("loads full article and updates view when clicking load full text button in banner", async () => {
@@ -486,7 +482,7 @@ describe("ReaderView load full text with Readability", () => {
     expect(readingContainer.textContent).not.toContain(
       "Fetched full article content",
     );
-    expect(readingContainer.textContent).toContain("Showing feed summary");
+    expect(readingContainer.textContent).not.toContain("Showing feed summary");
     expect(
       readingContainer.querySelector(".rss-reader-item-title")?.textContent,
     ).toBe(item.title);

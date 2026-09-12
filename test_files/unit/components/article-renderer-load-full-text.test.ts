@@ -139,16 +139,11 @@ describe("ArticleRenderer load full text with Readability", () => {
     expect(renderer.isContentFullArticle()).toBe(false);
     expect(onStateChange).toHaveBeenCalledWith(false, false);
 
-    const loadBtn = container.querySelector(
-      ".rss-reader-excerpt-banner .rss-reader-load-fulltext-btn",
-    ) as HTMLElement;
-    expect(loadBtn).not.toBeNull();
-
     fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
       content: "<p>" + "Manual full article content. ".repeat(20) + "</p>",
       failureType: "none",
     });
-    loadBtn.click();
+    await renderer.loadFullArticle();
     await vi.waitFor(() => {
       expect(
         container.querySelector(".rss-reader-article-content")?.textContent,
@@ -269,7 +264,7 @@ describe("ArticleRenderer load full text with Readability", () => {
     expect(loadBtn?.textContent).toBe("Load full text");
   });
 
-  it("renders an excerpt banner when full article was not fetched and feed only has summary", async () => {
+  it("renders feed summaries without an excerpt notice or open original link", async () => {
     fetchFullArticleContentWithOutcomeMock.mockResolvedValue({
       content: "",
       failureType: "none",
@@ -282,14 +277,10 @@ describe("ArticleRenderer load full text with Readability", () => {
     await renderer.render(container, item);
 
     const excerptBanner = container.querySelector(".rss-reader-excerpt-banner");
-    expect(excerptBanner).not.toBeNull();
-    expect(excerptBanner?.textContent).toContain("Showing feed summary");
-
-    const loadBtn = excerptBanner?.querySelector(
-      ".rss-reader-load-fulltext-btn",
-    );
-    expect(loadBtn).not.toBeNull();
-    expect(loadBtn?.textContent).toBe("Load full text");
+    expect(excerptBanner).toBeNull();
+    expect(container.textContent).toContain("Short summary only.");
+    expect(container.textContent).not.toContain("Showing feed summary");
+    expect(container.textContent).not.toContain("Open original");
   });
 
   it("loads full article and updates view when clicking load full text button", async () => {
@@ -346,7 +337,7 @@ describe("ArticleRenderer load full text with Readability", () => {
     const content = container.querySelector(".rss-reader-article-content");
     expect(content?.textContent).toContain("Renderer fallback excerpt.");
     expect(container.textContent).not.toContain("Fetched full article content");
-    expect(container.textContent).toContain("Showing feed summary");
+    expect(container.textContent).not.toContain("Showing feed summary");
     expect(container.querySelector(".rss-reader-item-title")?.textContent).toBe(
       item.title,
     );
