@@ -23,6 +23,8 @@
 
 ### Fixes
 
+- Fixed FreshRSS synced articles missing preview images in Dashboard Card and Feed views, and synced feeds missing their icons, by deriving article covers from content images (decoding HTML entities in image URLs so feeds like Twitter media resolve correctly) and passing through the server-provided subscription icon URLs.
+
 - Removed the Microsoft translation provider after its free endpoint became unavailable (region-restricted 404); reader translation now uses Google only, and existing Microsoft settings migrate to Google automatically.
 - Fixed the reader toolbar rendering duplicate translate buttons around the open-in-browser action when an article was opened in a new tab.
 - Removed the feed-summary notice and its Open original link from both readers; full-text loading remains available from the toolbar.

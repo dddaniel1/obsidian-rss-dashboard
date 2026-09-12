@@ -21,6 +21,24 @@ describe("FreshRSS provider", () => {
     await expect(provider.getSubscriptions()).rejects.toThrow("Invalid");
   });
 
+  it("passes through subscription icon URLs", async () => {
+    const { provider } = setup([
+      { status: 200, text: "Auth=x" },
+      {
+        status: 200,
+        text: JSON.stringify({
+          subscriptions: [
+            { id: "feed/1", title: "Every", url: "https://rsshub.example/twitter/user/every", categories: [], iconUrl: "https://freshrss.example/favicon.png" },
+          ],
+        }),
+      },
+    ]);
+    await provider.login("u", "p");
+    await expect(provider.getSubscriptions()).resolves.toEqual([
+      { id: "feed/1", title: "Every", url: "https://rsshub.example/twitter/user/every", folder: "", iconUrl: "https://freshrss.example/favicon.png" },
+    ]);
+  });
+
   it("lists FreshRSS label folders when tag entries omit the type field", async () => {
     const { provider } = setup([
       { status: 200, text: "Auth=x" },

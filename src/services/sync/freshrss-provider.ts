@@ -116,7 +116,7 @@ export class FreshRssProvider implements SyncProvider {
     return array(data.subscriptions).map((value) => {
       const feed = object(value);
       const categories = array(feed.categories).map(object);
-      return { id: string(feed.id), title: string(feed.title), url: string(feed.url), folder: categories.length ? string(categories[0].id) : "" };
+      return { id: string(feed.id), title: string(feed.title), url: string(feed.url), folder: categories.length ? string(categories[0].id) : "", iconUrl: optionalString(feed.iconUrl) || undefined };
     });
   }
 

@@ -8,7 +8,7 @@ export interface SyncRequest {
 }
 export type SyncTransport = (request: SyncRequest) => Promise<{ status: number; text: string }>;
 export interface RemoteFolder { id: string; name: string }
-export interface RemoteSubscription { id: string; title: string; url: string; folder: string }
+export interface RemoteSubscription { id: string; title: string; url: string; folder: string; iconUrl?: string }
 export interface RemoteArticle {
   id: string;
   feedId: string;

@@ -37,6 +37,11 @@ describe('article-preview-utils', () => {
       `;
       expect(extractFirstImageSrc(html)).toBe('https://example.com/article-photo.jpg');
     });
+
+    it('decodes HTML entities in image URLs from unsanitized HTML content', () => {
+      const html = '<img width="1504" height="530" src="https://pbs.twimg.com/media/HRuYzqCbUAAAf9v?format=jpg&amp;name=orig">';
+      expect(extractFirstImageSrc(html)).toBe('https://pbs.twimg.com/media/HRuYzqCbUAAAf9v?format=jpg&name=orig');
+    });
   });
 
   describe('looksLikeStylesheetText', () => {

@@ -1,6 +1,7 @@
 import { FeedItem } from '../../../types/types';
 import { htmlToReadableText } from '../../../utils/html-text';
 import { isLatexFormulaImage } from '../../../utils/image-url-utils';
+import { decodeHtmlEntities } from '../../../services/feed-parser/xml-parser/xml-html-utils';
 
 export const CARD_PREVIEW_SUMMARY_MAX_CHARS = 420;
 export const CARD_PREVIEW_HIGHLIGHT_MAX_CHARS = 900;
@@ -27,7 +28,7 @@ export function extractFirstImageSrc(html: string): string | null {
     const srcMatch = imageTag.match(/\bsrc=["']([^"']+)["']/i);
     if (!srcMatch) continue;
 
-    const src = srcMatch[1].trim();
+    const src = decodeHtmlEntities(srcMatch[1]).trim();
     const className = imageTag.match(/\bclass=["']([^"']*)["']/i)?.[1];
 
     // Reject literal placeholder values that some feeds (e.g. NPR CDATA) emit.

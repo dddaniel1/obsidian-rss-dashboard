@@ -2,6 +2,7 @@
 import type RssDashboardPlugin from "../../../main";
 import type { FeedItem, Folder, RssDashboardSettings } from "../../types/types";
 import { MediaService } from "../media-service";
+import { extractFirstImageSrc } from "../../components/article-list/utils/article-preview-utils";
 import { SyncError } from "./sync-provider";
 import type { SyncRuntime } from "./sync-runtime";
 import type { SyncState } from "./sync-service";
@@ -37,11 +38,12 @@ export class DashboardSyncSource {
     this.settings.folders = state.folders.map((folder): RemoteFolderView => ({ name: folder.name, subfolders: [], remoteId: folder.id }));
     this.settings.feeds = state.subscriptions.map((feed) => ({
       feedId: feed.id, title: feed.title, url: feed.url, folder: names.get(feed.folder) ?? "Uncategorized",
-      lastUpdated: state.lastSuccess ?? 0, excludeFromRefresh: true,
+      lastUpdated: state.lastSuccess ?? 0, excludeFromRefresh: true, iconUrl: feed.iconUrl,
       items: Object.values(state.articles).filter((article) => article.feedId === feed.id).map((article): FeedItem => ({
         ...article, guid: "freshrss:" + state.accountId + ":" + article.id,
         feedUrl: feed.url, feedTitle: feed.title, description: article.content,
-        pubDate: new Date(article.published * 1000).toISOString(), coverImage: "",
+        pubDate: new Date(article.published * 1000).toISOString(),
+        coverImage: extractFirstImageSrc(article.content) ?? "",
         ...describeFreshRssArticleMedia(article),
       })),
     }));
