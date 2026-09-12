@@ -107,10 +107,11 @@ export class FolderSuggest extends AbstractInputSuggest<string> {
   protected getSuggestions(query: string): string[] {
     const lowerQuery = query.toLowerCase();
 
-    // If query is empty OR matches exactly one of our folders, show ALL folders
-    // This solves the issue where pre-filled folders filter out everything else
+    // Uncategorized is the add-feed default even when the remote library has
+    // no uncategorized subscriptions. It must not filter out existing folders.
     if (
       lowerQuery === "" ||
+      lowerQuery === "uncategorized" ||
       this.folders.some((f) => f.toLowerCase() === lowerQuery)
     ) {
       return this.withOptionalAddNewOption(this.folders);

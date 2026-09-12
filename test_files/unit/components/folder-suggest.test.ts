@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as obsidian from "obsidian";
 import { FolderSuggest } from "../../../src/components/folder-suggest";
 import type { Folder } from "../../../src/types/types";
@@ -31,6 +31,11 @@ function getSuggestions(
 }
 
 describe("FolderSuggest", () => {
+  afterEach(() => {
+    document.body.empty();
+    vi.restoreAllMocks();
+  });
+
   beforeEach(() => {
     installObsidianDomPolyfills();
     document.body.empty();
@@ -57,6 +62,26 @@ describe("FolderSuggest", () => {
       "Media",
       "Media/YouTube",
     ]);
+  });
+
+  it("shows remote folders when the default Uncategorized folder is absent", () => {
+    const inputEl = document.body.appendChild(document.createElement("input"));
+    inputEl.value = "Uncategorized";
+    const suggest = new FolderSuggest(
+      obsidian.App.createMock(),
+      inputEl,
+      [{ name: "科技", subfolders: [] }, { name: "News", subfolders: [] }],
+      { showAddNewOption: false },
+    );
+
+    expect(getSuggestions(suggest, inputEl.value)).toEqual(
+      expect.arrayContaining(["科技", "News"]),
+    );
+    expect(getSuggestions(suggest, "new")).toEqual(["News"]);
+    expect(getSuggestions(suggest, "unknown")).toEqual([]);
+
+    suggest.selectSuggestion("科技", new MouseEvent("click"));
+    expect(inputEl.value).toBe("科技");
   });
 
   it("includes the add-new row when explicitly enabled", () => {

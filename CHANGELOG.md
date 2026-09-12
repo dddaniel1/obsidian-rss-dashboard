@@ -24,7 +24,7 @@
 ### Fixes
 
 - Opening an article no longer fetches the full article automatically; the feed content renders immediately and full text loads on demand via the Load full text action or banner.
-- Fixed FreshRSS folders missing from the Add feed folder selector when the server omits the optional folder type field from its Google Reader API response or lists categories only in the subscription list.
+- Fixed FreshRSS folders missing from the Add feed folder selector when the server omits the optional folder type field from its Google Reader API response, lists categories only in the subscription list, or the default Uncategorized value filters out existing folders.
 - Fixed full-text loading races in both readers: automatic and manual loads no longer overlap, and responses from articles that were switched away from or closed cannot overwrite the current content or loading state.
 - Made full-text loading toggleable in both readers: clicking the loaded full-text action again restores the original feed content and title without refetching.
 - Fixed FreshRSS-synchronized podcast and video feeds being shown as plain articles by keeping media enclosures and marking those items as podcast or video so the reader renders the built-in players.
