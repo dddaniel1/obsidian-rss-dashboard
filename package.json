@@ -6,6 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "dev": "node esbuild.config.mjs",
+    "install:obsidian": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-to-obsidian.ps1 -Reload",
     "check:css-scope": "node scripts/check-css-scope.js",
     "check:platform": "node scripts/check-platform-compat.mjs",
     "check:important": "node scripts/check-css-important.mjs",
