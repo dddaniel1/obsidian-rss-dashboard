@@ -271,18 +271,11 @@ describe("renderDisplaySettingsTab() reader section", () => {
     expect(plugin.settings.translation.enabled).toBe(false);
     expect(plugin.saveSettings).toHaveBeenCalled();
 
-    const providerSetting = getSettingByName(containerEl, "Translation service");
-    const providerSelect = providerSetting.querySelector(
-      "select",
-    ) as HTMLSelectElement;
-    expect(providerSelect.value).toBe("microsoft");
-
-    providerSelect.value = "google";
-    providerSelect.dispatchEvent(new Event("change"));
-    await flushPromises();
-
-    expect(plugin.settings.translation.provider).toBe("google");
-    expect(plugin.saveSettings).toHaveBeenCalled();
+    // The Microsoft provider was removed; no service dropdown is rendered.
+    const legacyServiceSetting = Array.from(
+      containerEl.querySelectorAll(".setting-item-name"),
+    ).find((el) => el.textContent?.trim() === "Translation service");
+    expect(legacyServiceSetting).toBeUndefined();
 
     const languageSetting = getSettingByName(containerEl, "Target language");
     const languageSelect = languageSetting.querySelector(
@@ -295,6 +288,6 @@ describe("renderDisplaySettingsTab() reader section", () => {
     await flushPromises();
 
     expect(plugin.settings.translation.targetLanguage).toBe("ja");
-    expect(plugin.saveSettings).toHaveBeenCalledTimes(3);
+    expect(plugin.saveSettings).toHaveBeenCalledTimes(2);
   });
 });

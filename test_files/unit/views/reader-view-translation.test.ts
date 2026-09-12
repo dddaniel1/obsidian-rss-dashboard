@@ -188,4 +188,25 @@ describe("ReaderView translation", () => {
     );
     expect(translateButton).toBeNull();
   });
+
+  it("renders exactly one translate button across open, settings, and display flows", async () => {
+    const harness = getHarness(readerView);
+    await readerView.onOpen();
+
+    // The dashboard applies source settings before the view is attached to
+    // the workspace DOM, mirroring the open-in-new-tab flow.
+    readerView.setSourceSettings(mockSettings);
+
+    document.body.appendChild(harness.contentEl);
+    getHarness(readerView).fetchFullArticleContent = vi
+      .fn()
+      .mockResolvedValue("");
+    getHarness(readerView).shouldSkipFullArticleFetch = () => true;
+    await readerView.displayItem(createItem());
+
+    const buttons = harness.contentEl.querySelectorAll(
+      ".rss-reader-translate-button",
+    );
+    expect(buttons.length).toBe(1);
+  });
 });

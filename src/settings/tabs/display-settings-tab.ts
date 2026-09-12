@@ -1096,26 +1096,6 @@ export function renderDisplaySettingsTab(
     );
 
   new Setting(containerEl)
-    .setName("Translation service")
-    .setDesc("Choose the service used to translate reader articles")
-    .addDropdown((dropdown) =>
-      dropdown
-        .addOption("microsoft", "Microsoft")
-        .addOption("google", "Google")
-        .setValue(plugin.settings.translation?.provider ?? "microsoft")
-        .onChange((value: string) => {
-          void (async () => {
-            plugin.settings.translation = {
-              ...plugin.settings.translation,
-              provider: value as "microsoft" | "google",
-            };
-            await plugin.saveSettings();
-            await rerenderActiveReaderView();
-          })();
-        }),
-    );
-
-  new Setting(containerEl)
     .setName("Target language")
     .setDesc("Choose the language reader articles are translated into")
     .addDropdown((dropdown) => {

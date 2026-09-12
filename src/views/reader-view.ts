@@ -2094,7 +2094,6 @@ export class ReaderView extends ItemView {
       const results = await TranslationService.translateBatch(
         blocks.map((block) => block.textContent || ""),
         translation.targetLanguage,
-        translation.provider,
       );
 
       blocks.forEach((block, index) => {
@@ -2136,8 +2135,14 @@ export class ReaderView extends ItemView {
       return;
     }
 
-    if (!this.translateButton || !this.translateButton.isConnected) {
-      const translateButton = activeWindow.createDiv({
+    // Reuse the existing button; `isConnected` is not a reliable guard
+    // because the header is built before the view is attached to the DOM.
+    let translateButton =
+      this.translateButton ??
+      actions.querySelector<HTMLElement>(".rss-reader-translate-button");
+
+    if (!translateButton) {
+      translateButton = activeWindow.createDiv({
         cls: "rss-reader-action-button rss-reader-translate-button",
         attr: {
           title: "Translate article",
@@ -2157,18 +2162,20 @@ export class ReaderView extends ItemView {
           void this.toggleTranslation();
         }
       });
+    }
 
-      const browserButton = actions.querySelector(
-        ".rss-reader-action-button[title='Open in Browser']",
+    if (translateButton.parentElement !== actions) {
+      const fullTextButton = actions.querySelector(
+        ".rss-reader-fulltext-button",
       );
-      if (browserButton) {
-        actions.insertBefore(translateButton, browserButton);
+      if (fullTextButton) {
+        actions.insertBefore(translateButton, fullTextButton);
       } else {
         actions.appendChild(translateButton);
       }
-      this.translateButton = translateButton;
     }
 
+    this.translateButton = translateButton;
     this.updateTranslateButtonState();
   }
 

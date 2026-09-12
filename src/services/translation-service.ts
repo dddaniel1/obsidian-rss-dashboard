@@ -1,21 +1,13 @@
 import { requestUrl } from "obsidian";
 
-export type TranslationProvider = "microsoft" | "google";
+export type TranslationProvider = "google";
 
 export interface TranslationResult {
   text: string;
   provider: TranslationProvider;
 }
 
-interface MicrosoftTranslationResponse {
-  translations?: Array<{ text?: string }>;
-}
-
 type GoogleTranslationResponse = [string, string, unknown, unknown];
-
-const MICROSOFT_TRANSLATE_URL =
-  "https://edge.microsoft.com/translate/auth";
-const MICROSOFT_API_URL = "https://api-edge.cognitive.microsofttranslator.com/translate";
 
 const GOOGLE_TRANSLATE_URL = "https://translate.googleapis.com/translate_a/single";
 
@@ -45,57 +37,17 @@ function hasMeaningfulText(element: Element): boolean {
 }
 
 export class TranslationService {
-  /** Microsoft auth token, refreshed when expired. */
-  private static microsoftToken: { value: string; expiresAt: number } | null =
-    null;
-
-  private static async getMicrosoftToken(): Promise<string> {
-    const now = Date.now();
-    if (
-      this.microsoftToken &&
-      this.microsoftToken.expiresAt > now + 30_000
-    ) {
-      return this.microsoftToken.value;
-    }
-
-    const response = await requestUrl({
-      url: MICROSOFT_TRANSLATE_URL,
-      method: "GET",
-    });
-
-    if (response.status !== 200) {
-      throw new Error(
-        `Microsoft translation auth failed with status ${response.status}`,
-      );
-    }
-
-    const token = response.text;
-    this.microsoftToken = { value: token, expiresAt: now + 8 * 60_000 };
-    return token;
-  }
-
   public static async translateText(
     text: string,
     targetLang: string,
-    provider: TranslationProvider,
   ): Promise<TranslationResult> {
     const trimmed = text.trim();
     if (!trimmed) {
-      return { text: "", provider };
+      return { text: "", provider: "google" };
     }
 
-    if (provider === "google") {
-      try {
-        return await this.translateWithGoogle(trimmed, targetLang);
-      } catch (error) {
-        throw new Error(
-          `Translation failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    }
     try {
-      const results = await this.translateWithMicrosoft([trimmed], targetLang);
-      return results[0];
+      return await this.translateWithGoogle(trimmed, targetLang);
     } catch (error) {
       throw new Error(
         `Translation failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -104,91 +56,23 @@ export class TranslationService {
   }
 
   /**
-   * Translate a batch of paragraphs. Microsoft accepts up to a small array of
-   * texts per request; Google's free endpoint accepts a single text per call,
-   * so paragraphs are translated sequentially.
+   * Translate a batch of paragraphs. Google's free endpoint accepts a single
+   * text per call, so paragraphs are translated sequentially.
    */
   public static async translateBatch(
     paragraphs: string[],
     targetLang: string,
-    provider: TranslationProvider,
   ): Promise<TranslationResult[]> {
     const nonEmpty = paragraphs.map((p) => p.trim()).filter(Boolean);
     if (nonEmpty.length === 0) {
       return [];
     }
 
-    if (provider === "google") {
-      const results: TranslationResult[] = [];
-      for (const paragraph of nonEmpty) {
-        results.push(await this.translateWithGoogle(paragraph, targetLang));
-      }
-      return results;
+    const results: TranslationResult[] = [];
+    for (const paragraph of nonEmpty) {
+      results.push(await this.translateWithGoogle(paragraph, targetLang));
     }
-
-    const out: TranslationResult[] = [];
-    const chunkSize = 20;
-    for (let i = 0; i < nonEmpty.length; i += chunkSize) {
-      const chunk = nonEmpty.slice(i, i + chunkSize);
-      const chunkResults = await this.translateWithMicrosoft(
-        chunk,
-        targetLang,
-      );
-      out.push(...chunkResults);
-    }
-    return out;
-  }
-
-  private static async translateWithMicrosoft(
-    texts: string[],
-    targetLang: string,
-  ): Promise<TranslationResult[]> {
-    const token = await this.getMicrosoftToken();
-    const url = `${MICROSOFT_API_URL}?api-version=3.0&to=${encodeURIComponent(targetLang)}`;
-
-    let response;
-    try {
-      response = await requestUrl({
-        url,
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(texts.map((text) => ({ Text: text }))),
-      });
-    } catch (error) {
-      // Token may have been revoked; retry once with a fresh token.
-      this.microsoftToken = null;
-      const freshToken = await this.getMicrosoftToken();
-      response = await requestUrl({
-        url,
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${freshToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(texts.map((text) => ({ Text: text }))),
-      });
-      void error;
-    }
-
-    if (response.status !== 200) {
-      throw new Error(
-        `Microsoft translation failed with status ${response.status}`,
-      );
-    }
-
-    const data = response.json as MicrosoftTranslationResponse[];
-    if (!Array.isArray(data) || data.length === 0) {
-      throw new Error("Microsoft translation returned no results");
-    }
-
-    const translations = data[0]?.translations ?? [];
-    return texts.map((text, index) => ({
-      text: translations[index]?.text ?? text,
-      provider: "microsoft" as const,
-    }));
+    return results;
   }
 
   private static async translateWithGoogle(

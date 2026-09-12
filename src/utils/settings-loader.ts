@@ -187,6 +187,8 @@ export function loadAndNormalizeSettings(
     DEFAULT_SETTINGS.translation,
     settings.translation ?? {},
   );
+  // The Microsoft provider was removed; migrate legacy settings to Google.
+  settings.translation.provider = "google";
   settings.keywordRules = Object.assign(
     {},
     DEFAULT_SETTINGS.keywordRules,

@@ -371,7 +371,7 @@ export interface HighlightSettings {
 
 export interface TranslationSettings {
   enabled: boolean;
-  provider: "microsoft" | "google";
+  provider: "google";
   targetLanguage: string;
 }
 
@@ -653,7 +653,7 @@ export const DEFAULT_SETTINGS: RssDashboardSettings = {
   },
   translation: {
     enabled: true,
-    provider: "microsoft",
+    provider: "google",
     targetLanguage: "zh-Hans",
   },
   media: {

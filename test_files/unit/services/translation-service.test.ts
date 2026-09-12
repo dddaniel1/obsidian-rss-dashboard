@@ -31,38 +31,6 @@ describe("TranslationService", () => {
   });
 
   describe("translateText", () => {
-    it("translates text with the Microsoft provider", async () => {
-      requestUrlSpy.mockResolvedValue(
-        createMockResponse(
-          "",
-          [
-            {
-              translations: [{ text: "你好世界", to: "zh-Hans" }],
-            },
-          ],
-        ) as unknown as MockResponse,
-      );
-
-      const result = await TranslationService.translateText(
-        "Hello world",
-        "zh-Hans",
-        "microsoft",
-      );
-
-      expect(result.text).toBe("你好世界");
-      expect(result.provider).toBe("microsoft");
-      // One auth request + one translate request.
-      expect(requestUrlSpy).toHaveBeenCalledTimes(2);
-      const requestArg = requestUrlSpy.mock.calls[1][0] as {
-        url: string;
-        body: string;
-      };
-      expect(requestArg.url).toContain(
-        "api-edge.cognitive.microsofttranslator.com",
-      );
-      expect(requestArg.body).toContain("Hello world");
-    });
-
     it("translates text with the Google provider", async () => {
       requestUrlSpy.mockResolvedValue(
         createMockResponse("", [
@@ -73,7 +41,6 @@ describe("TranslationService", () => {
       const result = await TranslationService.translateText(
         "Hello world",
         "zh-CN",
-        "google",
       );
 
       expect(result.text).toBe("你好世界");
@@ -88,7 +55,6 @@ describe("TranslationService", () => {
       const result = await TranslationService.translateText(
         "  ",
         "zh-Hans",
-        "microsoft",
       );
 
       expect(result.text).toBe("");
@@ -99,46 +65,13 @@ describe("TranslationService", () => {
       requestUrlSpy.mockRejectedValue(new Error("network down"));
 
       await expect(
-        TranslationService.translateText("Hello", "zh-Hans", "microsoft"),
+        TranslationService.translateText("Hello", "zh-Hans"),
       ).rejects.toThrow(/translation failed/i);
     });
   });
 
   describe("translateBatch", () => {
-    it("chunks paragraphs and preserves their order", async () => {
-      requestUrlSpy.mockImplementation(async (request: { body: string }) => {
-        // The first call without a body is the Microsoft auth request.
-        if (!request.body) {
-          return createMockResponse("token") as unknown as MockResponse;
-        }
-        const body = JSON.parse(request.body) as Array<{ Text: string }>;
-        return createMockResponse(
-          "",
-          [
-            {
-              translations: body.map((entry) => ({
-                text: `zh:${entry.Text}`,
-                to: "zh-Hans",
-              })),
-            },
-          ],
-        ) as unknown as MockResponse;
-      });
-
-      const results = await TranslationService.translateBatch(
-        ["One", "Two", "Three"],
-        "zh-Hans",
-        "microsoft",
-      );
-
-      expect(results.map((r) => r.text)).toEqual([
-        "zh:One",
-        "zh:Two",
-        "zh:Three",
-      ]);
-    });
-
-    it("translates each paragraph separately with the Google provider", async () => {
+    it("translates each paragraph separately", async () => {
       requestUrlSpy.mockImplementation(async () =>
         createMockResponse("", [
           [["translated", "en", null, null], null, null, null],
@@ -148,7 +81,6 @@ describe("TranslationService", () => {
       const results = await TranslationService.translateBatch(
         ["One", "Two"],
         "zh-CN",
-        "google",
       );
 
       expect(results.map((r) => r.text)).toEqual(["translated", "translated"]);
