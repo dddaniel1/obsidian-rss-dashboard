@@ -458,4 +458,31 @@ describe("safe-html.sanitizeAndAppendHtml", () => {
     );
     expect(img?.getAttribute("src")).toBe(decodedImageUrl);
   });
+
+  it("sets no-referrer on feed images so hotlink protection does not block them", () => {
+    const container = createContainer();
+
+    sanitizeAndAppendHtml(
+      container,
+      '<figure><img src="https://example.com/photo.jpg" alt="Photo"></figure>',
+      { mode: "rich" },
+    );
+
+    const img = container.querySelector("img");
+    expect(img?.getAttribute("referrerpolicy")).toBe("no-referrer");
+  });
+
+  it("overrides feed-provided referrer policies to no-referrer on images", () => {
+    const container = createContainer();
+
+    sanitizeAndAppendHtml(
+      container,
+      '<img src="https://example.com/photo.jpg" referrerpolicy="origin">',
+      { mode: "rich" },
+    );
+
+    expect(
+      container.querySelector("img")?.getAttribute("referrerpolicy"),
+    ).toBe("no-referrer");
+  });
 });

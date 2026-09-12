@@ -166,6 +166,14 @@ function copySafeAttributes(fromEl: HTMLElement, toEl: HTMLElement): void {
     // If name is invalid, silently skip it instead of throwing
   });
 
+  // Feed CDNs commonly block hotlinking by Referer; the Obsidian app origin
+  // is not allowlisted, so image requests would fail. Sending no referrer
+  // recovers those images and matches how standalone readers load them.
+  const tagName = toEl.tagName.toLowerCase();
+  if (tagName === "img" || tagName === "source") {
+    toEl.setAttribute("referrerpolicy", "no-referrer");
+  }
+
   if (toEl.tagName.toLowerCase() === "a" && toEl.getAttribute("href")) {
     toEl.setAttribute("target", "_blank");
     toEl.setAttribute("rel", "noopener noreferrer");

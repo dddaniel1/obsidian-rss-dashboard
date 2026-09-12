@@ -2346,7 +2346,11 @@ export class ReaderView extends ItemView {
           if (heroUrl) {
             heroSlot.createEl("img", {
               cls: "rss-reader-fallback-hero",
-              attr: { src: heroUrl, alt: title || "Hero image" },
+              attr: {
+                src: heroUrl,
+                alt: title || "Hero image",
+                referrerpolicy: "no-referrer",
+              },
             });
 
             // Remove the first image from the body if it's the hero image to avoid duplication

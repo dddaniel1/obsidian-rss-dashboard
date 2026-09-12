@@ -60,6 +60,7 @@ function renderArticleCard(
         src: displayedCoverImgSrc,
         alt: article.title,
         loading: "lazy",
+        referrerpolicy: "no-referrer",
       },
     });
     heroImage.onerror = () => {

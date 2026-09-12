@@ -107,6 +107,7 @@ export function renderCardView(
           alt: article.title,
           loading: "lazy",
           decoding: "async",
+          referrerpolicy: "no-referrer",
         },
       });
       coverImg.onerror = () => {
