@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "obsidian";
 import { PodcastPlayer } from "../../../src/views/podcast-player";
+import { PodcastAudioService } from "../../../src/services/podcast-audio-service";
 import {
   installMediaElementPolyfills,
   installObsidianDomPolyfills,
@@ -454,6 +455,147 @@ describe("PodcastPlayer", () => {
 
       player.destroy();
       vi.useRealTimers();
+    });
+  });
+
+  describe("PodcastAudioService integration", () => {
+    it("delegates playback to PodcastAudioService and preserves audio on destroy", async () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const app = new App();
+      const audioService = new PodcastAudioService({ app, rememberProgress: false });
+      const player = new PodcastPlayer(
+        container,
+        app,
+        "obsidian",
+        undefined,
+        undefined,
+        undefined,
+        false,
+        1,
+        audioService,
+      );
+
+      const ep = baseEpisode();
+      player.loadEpisode(ep);
+
+      expect(audioService.getCurrentItem()?.guid).toBe(ep.guid);
+
+      // Play via player
+      const playBtn = container.querySelector<HTMLElement>(".rss-play-pause");
+      playBtn?.click();
+
+      expect(audioService.isPlaying()).toBe(true);
+
+      // Destroy view - audio service should KEEP playing
+      player.destroy();
+      expect(audioService.isPlaying()).toBe(true);
+      expect(audioService.getCurrentItem()?.guid).toBe(ep.guid);
+
+      audioService.destroy();
+    });
+
+    it("does not terminate ongoing playback when navigating to another episode without autoplay", async () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const app = new App();
+      const audioService = new PodcastAudioService({ app, rememberProgress: false });
+      const player = new PodcastPlayer(
+        container,
+        app,
+        "obsidian",
+        undefined,
+        undefined,
+        undefined,
+        false,
+        1,
+        audioService,
+      );
+
+      const ep1 = { ...baseEpisode(), guid: "ep-1", title: "Ep 1", audioUrl: "https://example.com/1.mp3" };
+      const ep2 = { ...baseEpisode(), guid: "ep-2", title: "Ep 2", audioUrl: "https://example.com/2.mp3" };
+
+      player.loadEpisode(ep1, [ep1, ep2]);
+
+      // Play ep1
+      const playBtn = container.querySelector<HTMLElement>(".rss-play-pause");
+      playBtn?.click();
+      expect(audioService.isPlaying()).toBe(true);
+      expect(audioService.getCurrentItem()?.guid).toBe("ep-1");
+
+      // Now navigate to ep2 without clicking play (e.g. from playlist or reader view)
+      player.loadEpisode(ep2);
+
+      // Audio service must STILL be playing ep1!
+      expect(audioService.isPlaying()).toBe(true);
+      expect(audioService.getCurrentItem()?.guid).toBe("ep-1");
+
+      // Player view for ep2 should show "play" icon (not "pause"), because ep2 is not playing
+      expect(container.querySelector<HTMLElement>(".rss-play-pause")?.dataset.icon).toBe("play");
+
+      // Now click play on ep2
+      const playBtn2 = container.querySelector<HTMLElement>(".rss-play-pause");
+      playBtn2?.click();
+
+      // Now ep2 starts playing and replaces ep1 in audioService
+      expect(audioService.isPlaying()).toBe(true);
+      expect(audioService.getCurrentItem()?.guid).toBe("ep-2");
+      expect(container.querySelector<HTMLElement>(".rss-play-pause")?.dataset.icon).toBe("pause");
+
+      player.destroy();
+      audioService.destroy();
+    });
+
+    it("restores active playing controls when navigating back to currently playing episode", async () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const app = new App();
+      const audioService = new PodcastAudioService({ app, rememberProgress: false });
+      const player = new PodcastPlayer(
+        container,
+        app,
+        "obsidian",
+        undefined,
+        undefined,
+        undefined,
+        false,
+        1,
+        audioService,
+      );
+
+      const ep1 = { ...baseEpisode(), guid: "ep-1", title: "Ep 1", audioUrl: "https://example.com/1.mp3" };
+      const ep2 = { ...baseEpisode(), guid: "ep-2", title: "Ep 2", audioUrl: "https://example.com/2.mp3" };
+
+      player.loadEpisode(ep1, [ep1, ep2]);
+
+      // Play ep1
+      container.querySelector<HTMLElement>(".rss-play-pause")?.click();
+      expect(audioService.isPlaying()).toBe(true);
+
+      // Browse ep2 (preview only)
+      player.loadEpisode(ep2);
+      expect(container.querySelector<HTMLElement>(".rss-play-pause")?.dataset.icon).toBe("play");
+
+      // Controls on ep2 should not seek ep1
+      audioService.seek(50);
+      expect(audioService.getCurrentTime()).toBe(50);
+      const rewindBtn = container.querySelector<HTMLElement>(".rss-rewind");
+      rewindBtn?.click();
+      // Should NOT have rewound ep1 because player is on ep2
+      expect(audioService.getCurrentTime()).toBe(50);
+
+      // Return to ep1
+      player.loadEpisode(ep1);
+      expect(audioService.isPlaying()).toBe(true);
+      expect(container.querySelector<HTMLElement>(".rss-play-pause")?.dataset.icon).toBe("pause");
+
+      // Pause ep1 from player view
+      container.querySelector<HTMLElement>(".rss-play-pause")?.click();
+      expect(audioService.isPlaying()).toBe(false);
+      expect(container.querySelector<HTMLElement>(".rss-play-pause")?.dataset.icon).toBe("play");
+
+      player.destroy();
+      audioService.destroy();
     });
   });
 });

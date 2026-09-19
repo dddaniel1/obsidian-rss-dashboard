@@ -48,6 +48,7 @@ import { createTagsDropdownPortal } from "../utils/tags-dropdown-portal";
 import { resolveItemExternalUrl } from "../utils/item-url-utils";
 import { resolvePodcastOpenDestinations } from "../utils/podcast-open-destinations";
 import { resolveApplePodcastsShowUrl } from "../services/apple-podcasts-service";
+import type { PodcastAudioService } from "../services/podcast-audio-service";
 import { createReaderFormatPortal } from "../utils/reader-format-portal";
 import {
   normalizeSubstackImageUrl,
@@ -114,6 +115,7 @@ export class ReaderView extends ItemView {
     duration: number,
     flush?: boolean,
   ) => void;
+  private podcastAudioService?: PodcastAudioService;
   private readToggleButton: HTMLElement | null = null;
   private starToggleButton: HTMLElement | null = null;
   private saveButton: HTMLElement | null = null;
@@ -178,6 +180,12 @@ export class ReaderView extends ItemView {
   }
 
   public isPodcastPlaying(): boolean {
+    if (this.podcastAudioService) {
+      return (
+        this.podcastAudioService.isPlaying() &&
+        this.podcastAudioService.getCurrentItem()?.guid === this.currentItem?.guid
+      );
+    }
     if (!this.podcastPlayer) return false;
     const audioElement = (
       this.podcastPlayer as unknown as { audioElement?: HTMLAudioElement }
@@ -207,6 +215,7 @@ export class ReaderView extends ItemView {
         duration: number,
         flush?: boolean,
       ) => void;
+      podcastAudioService?: PodcastAudioService;
     },
   ) {
     super(leaf);
@@ -215,6 +224,7 @@ export class ReaderView extends ItemView {
     this.onArticleSave = onArticleSave;
     this.onArticleUpdate = onArticleUpdate;
     this.onPlaybackProgress = options?.onPlaybackProgress;
+    this.podcastAudioService = options?.podcastAudioService;
     addMathTurndownRule(this.turndownService);
 
     this.scope = new Scope(this.app.scope);
@@ -1727,6 +1737,7 @@ export class ReaderView extends ItemView {
         this.onPlaybackProgress,
         this.settings.media.rememberPlaybackProgress,
         this.settings.media.defaultPlaySpeed ?? 1,
+        this.podcastAudioService,
       );
       this.podcastPlayer.loadEpisode(item, fullFeedEpisodes);
     } else {
@@ -1745,6 +1756,7 @@ export class ReaderView extends ItemView {
           this.onPlaybackProgress,
           this.settings.media.rememberPlaybackProgress,
           this.settings.media.defaultPlaySpeed ?? 1,
+          this.podcastAudioService,
         );
         this.podcastPlayer.loadEpisode(podcastItem, fullFeedEpisodes);
       } else {

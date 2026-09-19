@@ -2,6 +2,8 @@
 
 ### Features
 
+- Added a global podcast player: podcast audio playback is now managed by a singleton audio service (`PodcastAudioService`) and persists seamlessly when navigating across the vault, browsing dashboard feeds, viewing other episodes, reading other articles, or switching tabs. Includes a floating bottom mini-player (`PodcastMiniPlayer`) with playback controls, seeking, speed cycling, progress bar, expand-to-reader, MediaSession integration (OS media keys and lock screen controls), and global Obsidian commands.
+
 - Added on-demand full-text loading with Mozilla Readability: when full article content cannot be displayed (truncated RSS excerpts, paywalls, or failed extraction), users can click the "Load full text" button in the inline banner or the reader toolbar action ("Load full article") to fetch and extract clean full content with fallback selectors and relative link/image resolution directly in both the Reader view and Dashboard inline reader.
 
 - Added an option to open external links and articles directly inside Obsidian's native Web viewer tab (`browser` view) instead of leaving to the system default browser, configurable under **Settings > General > Open external links in**. Includes fallback to external browser if the core Web viewer is unavailable.

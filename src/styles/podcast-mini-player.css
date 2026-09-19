@@ -1,0 +1,201 @@
+.rss-podcast-mini-player {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--layer-modal, 100);
+  background: var(--background-secondary);
+  border-top: 1px solid var(--background-modifier-border);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.25s ease, opacity 0.25s ease;
+  user-select: none;
+}
+
+.rss-podcast-mini-player.is-hidden {
+  display: none;
+}
+
+.rss-podcast-mini-player .rss-mini-progress-track {
+  width: 100%;
+  height: 4px;
+  background: var(--background-modifier-border);
+  cursor: pointer;
+  position: relative;
+  transition: height 0.15s ease;
+}
+
+.rss-podcast-mini-player .rss-mini-progress-track:hover {
+  height: 6px;
+}
+
+.rss-podcast-mini-player .rss-mini-progress-filled {
+  height: 100%;
+  width: 0%;
+  background: var(--interactive-accent);
+  transition: width 0.1s linear;
+  pointer-events: none;
+}
+
+.rss-podcast-mini-player .rss-mini-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  gap: 16px;
+  height: 52px;
+  box-sizing: border-box;
+}
+
+.rss-podcast-mini-player .rss-mini-info-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 0%;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.rss-podcast-mini-player .rss-mini-cover-wrapper {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--background-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--background-modifier-border);
+}
+
+.rss-podcast-mini-player .rss-mini-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rss-podcast-mini-player .rss-mini-cover-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--text-muted);
+}
+
+.rss-podcast-mini-player .rss-mini-cover-placeholder.is-hidden {
+  display: none;
+}
+
+.rss-podcast-mini-player .rss-mini-text-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.rss-podcast-mini-player .rss-mini-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rss-podcast-mini-player .rss-mini-feed {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rss-podcast-mini-player .rss-mini-controls-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.rss-podcast-mini-player .rss-mini-play-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.rss-podcast-mini-player .rss-mini-play-btn:hover {
+  transform: scale(1.05);
+}
+
+.rss-podcast-mini-player .rss-mini-rewind-btn,
+.rss-podcast-mini-player .rss-mini-forward-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-normal);
+  cursor: pointer;
+}
+
+.rss-podcast-mini-player .rss-mini-actions-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 0%;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.rss-podcast-mini-player .rss-mini-time {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rss-podcast-mini-player .rss-mini-speed-btn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rss-podcast-mini-player .rss-mini-expand-btn,
+.rss-podcast-mini-player .rss-mini-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.rss-podcast-mini-player .rss-mini-expand-btn:hover,
+.rss-podcast-mini-player .rss-mini-close-btn:hover {
+  color: var(--text-normal);
+}
+
+@media (max-width: 600px) {
+  .rss-podcast-mini-player .rss-mini-time {
+    display: none;
+  }
+  .rss-podcast-mini-player .rss-mini-speed-btn {
+    display: none;
+  }
+  .rss-podcast-mini-player .rss-mini-row {
+    padding: 6px 10px;
+    gap: 8px;
+  }
+}

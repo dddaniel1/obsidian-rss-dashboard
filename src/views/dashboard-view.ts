@@ -746,6 +746,7 @@ export class RssDashboardView extends ItemView {
       onFullArticleStateChange: (isFullArticle, isLoading) => {
         this.updateInlineFullTextButton(isFullArticle, isLoading);
       },
+      podcastAudioService: this.plugin.podcastAudioService,
     });
 
     this.registerEvent(

@@ -23,6 +23,7 @@ import {
 } from "../utils/image-url-utils";
 import { PodcastPlayer } from "../views/podcast-player";
 import { VideoPlayer } from "../views/video-player";
+import type { PodcastAudioService } from "../services/podcast-audio-service";
 
 const VIDEO_ARTICLE_BANNER =
   "This item appears to be a video. Open the source page to watch.";
@@ -50,12 +51,14 @@ export interface ArticleRendererOptions {
     isFullArticle: boolean,
     isLoading: boolean,
   ) => void;
+  podcastAudioService?: PodcastAudioService;
 }
 
 export class ArticleRenderer {
   private app: App;
   private component: Component;
   private settings: RssDashboardSettings;
+  private podcastAudioService?: PodcastAudioService;
 
   public setSourceSettings(settings: RssDashboardSettings): void {
     this.settings = settings;
@@ -102,6 +105,7 @@ export class ArticleRenderer {
     this.onOpenSavedArticle = options.onOpenSavedArticle;
     this.onPlaybackProgress = options.onPlaybackProgress;
     this.onFullArticleStateChange = options.onFullArticleStateChange;
+    this.podcastAudioService = options.podcastAudioService;
   }
 
   public isContentFullArticle(): boolean {
@@ -270,6 +274,7 @@ export class ArticleRenderer {
         this.onPlaybackProgress,
         this.settings.media.rememberPlaybackProgress,
         this.settings.media.defaultPlaySpeed ?? 1,
+        this.podcastAudioService,
       );
       this.podcastPlayer.loadEpisode(item, fullFeedEpisodes);
     } else {

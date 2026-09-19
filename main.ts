@@ -73,6 +73,8 @@ import { OpmlManager } from "./src/services/opml-manager";
 import { MediaService } from "./src/services/media-service";
 import { ImageCacheService } from "./src/services/image-cache-service";
 import { resolveArticlePreviewImage } from "./src/components/article-list/utils/article-preview-utils";
+import { PodcastAudioService } from "./src/services/podcast-audio-service";
+import { PodcastMiniPlayer } from "./src/components/podcast-mini-player";
 
 import { ImportOpmlModal } from "./src/modals/import-opml-modal";
 import { AddFeedModal } from "./src/modals/feed-manager/add-feed-modal";
@@ -329,6 +331,8 @@ export default class RssDashboardPlugin extends Plugin {
   }
 
   articleSaver!: ArticleSaver;
+  public podcastAudioService!: PodcastAudioService;
+  public podcastMiniPlayer: PodcastMiniPlayer | null = null;
   private backupService!: BackupService;
   protected folderService!: FolderService;
   private importExportService!: ImportExportService;
@@ -412,6 +416,23 @@ export default class RssDashboardPlugin extends Plugin {
       isGlobalOperationCancelled: () => this.isGlobalRefreshCancelled,
       onFeedImported: (feed) => this.queuePreviewImageCaching(feed),
     });
+    if (!this.podcastAudioService) {
+      this.podcastAudioService = new PodcastAudioService({
+        app: this.app,
+        onPlaybackProgress: (item, position, duration, flush) => {
+          this.updatePlaybackProgress(
+            item.feedUrl,
+            item.guid,
+            position,
+            duration,
+            flush,
+            item,
+          );
+        },
+        rememberProgress: this.settings.media.rememberPlaybackProgress,
+        defaultPlaySpeed: this.settings.media.defaultPlaySpeed ?? 1,
+      });
+    }
   }
 
   private async initializeImageCache(): Promise<void> {
@@ -1011,6 +1032,7 @@ export default class RssDashboardPlugin extends Plugin {
               void this.updateArticleFromReader(item, updates, shouldRerender);
             },
             {
+              podcastAudioService: this.podcastAudioService,
               onPlaybackProgress: (item, position, duration, flush) => {
                 this.updatePlaybackProgress(
                   item.feedUrl,
@@ -1060,6 +1082,55 @@ export default class RssDashboardPlugin extends Plugin {
           this.cancelPendingStartupRefresh();
           void this.refreshFeeds();
         },
+      });
+
+      this.addCommand({
+        id: "podcast-toggle-play",
+        name: "Toggle podcast playback",
+        callback: () => {
+          void this.podcastAudioService.togglePlayback();
+        },
+      });
+
+      this.addCommand({
+        id: "podcast-forward-30",
+        name: "Podcast jump forward 30 seconds",
+        callback: () => {
+          this.podcastAudioService.seekRelative(30);
+        },
+      });
+
+      this.addCommand({
+        id: "podcast-rewind-15",
+        name: "Podcast rewind 15 seconds",
+        callback: () => {
+          this.podcastAudioService.seekRelative(-15);
+        },
+      });
+
+      this.addCommand({
+        id: "podcast-open-reader",
+        name: "Open current podcast episode in reader",
+        callback: () => {
+          const item = this.podcastAudioService.getCurrentItem();
+          if (item) {
+            void this.openPodcastInReader(item);
+          }
+        },
+      });
+
+      this.app.workspace.onLayoutReady(() => {
+        const container =
+          this.app.workspace.containerEl ?? activeDocument.body;
+        if (!container) return;
+        this.podcastMiniPlayer = new PodcastMiniPlayer({
+          container,
+          audioService: this.podcastAudioService,
+          theme: this.settings.media.podcastTheme,
+          onExpand: (item) => {
+            void this.openPodcastInReader(item);
+          },
+        });
       });
 
       this.addCommand({
@@ -1331,6 +1402,25 @@ export default class RssDashboardPlugin extends Plugin {
       }
     } catch {
       new Notice("Error opening RSS dashboard view");
+    }
+  }
+
+  async openPodcastInReader(item: FeedItem): Promise<void> {
+    const { workspace } = this.app;
+    const existing = workspace.getLeavesOfType(RSS_READER_VIEW_TYPE)[0];
+    const leaf = existing ?? workspace.getLeaf(Platform.isMobile ? "tab" : "split");
+    if (leaf) {
+      await leaf.setViewState({
+        type: RSS_READER_VIEW_TYPE,
+        active: true,
+      });
+      await workspace.revealLeaf(leaf);
+      workspace.setActiveLeaf(leaf, { focus: true });
+
+      if (leaf.view instanceof ReaderView) {
+        await leaf.view.displayItem(item);
+        leaf.view.focusReaderView();
+      }
     }
   }
 
@@ -3465,6 +3555,9 @@ export default class RssDashboardPlugin extends Plugin {
   }
 
   onunload() {
+    this.podcastMiniPlayer?.destroy();
+    this.podcastMiniPlayer = null;
+    this.podcastAudioService?.destroy();
     this.autoRefreshScheduler?.stop();
     if (this.progressSaveDebounce !== null) {
       window.clearTimeout(this.progressSaveDebounce);

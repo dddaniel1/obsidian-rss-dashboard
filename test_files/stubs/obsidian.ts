@@ -525,6 +525,7 @@ export class MockDataVault {
 export class MockWorkspace {
   private leaves: Map<string, unknown> = new Map();
   public activeLeaf: unknown = null;
+  public containerEl: HTMLElement = activeDocument.createElement("div");
   private layoutReadyCallbacks: Array<() => void> = [];
 
   onLayoutChange = new MockEvent();

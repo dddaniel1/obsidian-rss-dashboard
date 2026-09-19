@@ -4,11 +4,14 @@ import { PodcastPlaylist } from "../components/podcast-playlist";
 import { MediaService } from "../services/media-service";
 import { sanitizeAndAppendHtml } from "../utils/safe-html";
 import { windowInstanceOf } from "../utils/platform-utils";
+import type { PodcastAudioService } from "../services/podcast-audio-service";
 
 export class PodcastPlayer {
   private container: HTMLElement;
   private app: App;
   private theme: string;
+  private audioService?: PodcastAudioService;
+  private audioServiceUnsubs: Array<() => void> = [];
   private audioElement: HTMLAudioElement | null = null;
   private currentItem: FeedItem | null = null;
   private hasAudioForCurrentItem = true;
@@ -74,12 +77,14 @@ export class PodcastPlayer {
     ) => void,
     progressTrackingEnabled = true,
     defaultPlaySpeed = 1,
+    audioService?: PodcastAudioService,
   ) {
     this.container = container;
     this.app = app;
     this.theme = theme || "obsidian";
     this.progressTrackingEnabled = progressTrackingEnabled;
     this.defaultPlaySpeed = defaultPlaySpeed ?? 1;
+    this.audioService = audioService;
     if (playlist) {
       this.playlist = playlist;
       this.originalPlaylist = [...playlist];
@@ -134,6 +139,21 @@ export class PodcastPlayer {
     }
 
     this.render();
+
+    if (this.audioService) {
+      const activeItem = this.audioService.getCurrentItem();
+      if (activeItem?.guid !== item.guid) {
+        if (autoplay || !activeItem) {
+          this.audioService.loadEpisode(item, fullFeedEpisodes, { autoplay });
+        }
+      } else if (autoplay && !this.audioService.isPlaying()) {
+        void this.audioService.play();
+      }
+      this.updatePlayButtonIcon(this.isCurrentItemPlaying());
+      this.updateProgressDisplay();
+      return;
+    }
+
     if (this.audioElement) {
       if (item.audioUrl) {
         this.audioElement.src = item.audioUrl;
@@ -216,31 +236,68 @@ export class PodcastPlayer {
     });
     podcastContainer.setAttribute("data-podcast-theme", this.theme);
 
-    // Initialize audio element early so UI components can reference its state
-    this.audioElement = podcastContainer.createEl("audio", {
-      attr: { preload: "metadata" },
-    });
-    if (this.currentItem.audioUrl) {
-      this.audioElement.src = this.currentItem.audioUrl;
+    if (this.audioService) {
+      this.audioElement = this.audioService.getAudioElement();
+      this.audioServiceUnsubs.forEach((unsub) => unsub());
+      this.audioServiceUnsubs = [
+        this.audioService.on("state-change", (state) => {
+          if (
+            this.audioService?.getCurrentItem()?.guid ===
+            this.currentItem?.guid
+          ) {
+            this.updatePlayButtonIcon(state === "playing");
+          } else {
+            this.updatePlayButtonIcon(false);
+          }
+        }),
+        this.audioService.on("track-change", (item) => {
+          const isCurrent = item?.guid === this.currentItem?.guid;
+          this.updatePlayButtonIcon(
+            isCurrent && this.audioService?.isPlaying() === true,
+          );
+          this.updateProgressDisplay();
+        }),
+        this.audioService.on("time-update", () => {
+          if (
+            this.audioService?.getCurrentItem()?.guid ===
+            this.currentItem?.guid
+          ) {
+            this.updateProgressDisplay();
+          }
+        }),
+        this.audioService.on("rate-change", (rate) => {
+          if (this.speedButtonEl && "value" in this.speedButtonEl) {
+            (this.speedButtonEl as HTMLSelectElement).value = rate.toString();
+          }
+        }),
+      ];
+    } else {
+      // Initialize audio element early so UI components can reference its state
+      this.audioElement = podcastContainer.createEl("audio", {
+        attr: { preload: "metadata" },
+      });
+      if (this.currentItem.audioUrl) {
+        this.audioElement.src = this.currentItem.audioUrl;
+      }
+      this.audioElement.onplay = () => {
+        this.updatePlayButtonIcon(true);
+        this.startProgressTracking();
+      };
+      this.audioElement.onpause = () => {
+        this.updatePlayButtonIcon(false);
+        this.stopProgressTracking();
+        this.saveProgress(true);
+      };
+      this.audioElement.ontimeupdate = () => this.updateProgressDisplay();
+      this.audioElement.onloadedmetadata = () => this.updateProgressDisplay();
+      this.audioElement.onended = () => {
+        this.stopProgressTracking();
+        this.saveProgress(true);
+        this.handleEpisodeEnd();
+      };
+      this.audioElement.volume = 1;
+      this.audioElement.playbackRate = this.defaultPlaySpeed;
     }
-    this.audioElement.onplay = () => {
-      this.updatePlayButtonIcon(true);
-      this.startProgressTracking();
-    };
-    this.audioElement.onpause = () => {
-      this.updatePlayButtonIcon(false);
-      this.stopProgressTracking();
-      this.saveProgress(true);
-    };
-    this.audioElement.ontimeupdate = () => this.updateProgressDisplay();
-    this.audioElement.onloadedmetadata = () => this.updateProgressDisplay();
-    this.audioElement.onended = () => {
-      this.stopProgressTracking();
-      this.saveProgress(true);
-      this.handleEpisodeEnd();
-    };
-    this.audioElement.volume = 1;
-    this.audioElement.playbackRate = this.defaultPlaySpeed;
 
     // --- NEW TWO-ROW LAYOUT STRUCTURE ---
     this.playerEl = podcastContainer.createDiv({
@@ -324,6 +381,14 @@ export class PodcastPlayer {
     setIcon(rewindBtn, "rotate-ccw");
     rewindBtn.createSpan({ cls: "seek-label", text: "30" });
     rewindBtn.onclick = () => {
+      if (this.audioService) {
+        if (
+          this.audioService.getCurrentItem()?.guid === this.currentItem?.guid
+        ) {
+          this.audioService.seekRelative(-30);
+        }
+        return;
+      }
       if (this.audioElement) {
         this.audioElement.currentTime = Math.max(
           0,
@@ -335,6 +400,14 @@ export class PodcastPlayer {
     rewindBtn.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
+        if (this.audioService) {
+          if (
+            this.audioService.getCurrentItem()?.guid === this.currentItem?.guid
+          ) {
+            this.audioService.seekRelative(-30);
+          }
+          return;
+        }
         if (this.audioElement) {
           this.audioElement.currentTime = Math.max(
             0,
@@ -390,6 +463,14 @@ export class PodcastPlayer {
     setIcon(forwardBtn, "rotate-cw");
     forwardBtn.createSpan({ cls: "seek-label", text: "30" });
     forwardBtn.onclick = () => {
+      if (this.audioService) {
+        if (
+          this.audioService.getCurrentItem()?.guid === this.currentItem?.guid
+        ) {
+          this.audioService.seekRelative(30);
+        }
+        return;
+      }
       if (this.audioElement) {
         this.audioElement.currentTime = Math.min(
           this.audioElement.duration || Infinity,
@@ -401,6 +482,14 @@ export class PodcastPlayer {
     forwardBtn.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
+        if (this.audioService) {
+          if (
+            this.audioService.getCurrentItem()?.guid === this.currentItem?.guid
+          ) {
+            this.audioService.seekRelative(30);
+          }
+          return;
+        }
         if (this.audioElement) {
           this.audioElement.currentTime = Math.min(
             this.audioElement.duration || Infinity,
@@ -642,19 +731,35 @@ export class PodcastPlayer {
       };
 
       progressBar.addEventListener("click", (e) => {
-        if (!this.audioElement || !this.audioElement.duration) return;
         const seekTime = getSeekTime(e);
+        if (this.audioService) {
+          if (
+            this.audioService.getCurrentItem()?.guid === this.currentItem?.guid
+          ) {
+            this.audioService.seek(seekTime);
+          }
+          return;
+        }
+        if (!this.audioElement || !this.audioElement.duration) return;
         this.audioElement.currentTime = seekTime;
         this.updateProgressDisplay();
       });
 
       progressBar.addEventListener("mousedown", (_e) => {
-        if (!this.audioElement || !this.audioElement.duration) return;
         isDragging = true;
         const moveHandler = (moveEvent: MouseEvent) => {
-          if (!isDragging || !this.audioElement || !this.audioElement.duration)
-            return;
+          if (!isDragging) return;
           const seekTime = getSeekTime(moveEvent);
+          if (this.audioService) {
+            if (
+              this.audioService.getCurrentItem()?.guid ===
+              this.currentItem?.guid
+            ) {
+              this.audioService.seek(seekTime);
+            }
+            return;
+          }
+          if (!this.audioElement || !this.audioElement.duration) return;
           this.audioElement.currentTime = seekTime;
           this.updateProgressDisplay();
         };
@@ -668,12 +773,20 @@ export class PodcastPlayer {
       });
 
       progressBar.addEventListener("touchstart", (_e) => {
-        if (!this.audioElement || !this.audioElement.duration) return;
         isDragging = true;
         const moveHandler = (moveEvent: TouchEvent) => {
-          if (!isDragging || !this.audioElement || !this.audioElement.duration)
-            return;
+          if (!isDragging) return;
           const seekTime = getSeekTime(moveEvent);
+          if (this.audioService) {
+            if (
+              this.audioService.getCurrentItem()?.guid ===
+              this.currentItem?.guid
+            ) {
+              this.audioService.seek(seekTime);
+            }
+            return;
+          }
+          if (!this.audioElement || !this.audioElement.duration) return;
           this.audioElement.currentTime = seekTime;
           this.updateProgressDisplay();
         };
@@ -1175,6 +1288,17 @@ export class PodcastPlayer {
   }
 
   private togglePlayback(): void {
+    if (this.audioService) {
+      const activeItem = this.audioService.getCurrentItem();
+      if (activeItem?.guid === this.currentItem?.guid) {
+        void this.audioService.togglePlayback();
+      } else if (this.currentItem) {
+        this.audioService.loadEpisode(this.currentItem, this.playlist, {
+          autoplay: true,
+        });
+      }
+      return;
+    }
     if (!this.audioElement) return;
     if (!this.currentItem?.audioUrl) return;
 
@@ -1186,9 +1310,20 @@ export class PodcastPlayer {
   }
 
   private cyclePlaybackSpeed(): void {
+    const speeds = [1.0, 1.25, 1.5, 1.75, 2.0, 0.75];
+    if (this.audioService) {
+      const currentSpeed = this.audioService.getPlaybackRate();
+      let nextIndex =
+        speeds.findIndex((speed) => Math.abs(speed - currentSpeed) < 0.05) + 1;
+      if (nextIndex >= speeds.length) nextIndex = 0;
+      this.audioService.setPlaybackRate(speeds[nextIndex]);
+      if (this.speedButtonEl) {
+        this.speedButtonEl.textContent = `${speeds[nextIndex].toFixed(2)}x`;
+      }
+      return;
+    }
     if (!this.audioElement || !this.speedButtonEl) return;
 
-    const speeds = [1.0, 1.25, 1.5, 1.75, 2.0, 0.75];
     const currentSpeed = this.audioElement.playbackRate;
 
     let nextIndex = speeds.findIndex((speed) => speed === currentSpeed) + 1;
@@ -1199,6 +1334,7 @@ export class PodcastPlayer {
   }
 
   private startProgressTracking(): void {
+    if (this.audioService) return;
     if (!this.progressTrackingEnabled) {
       return;
     }
@@ -1223,7 +1359,100 @@ export class PodcastPlayer {
     }
   }
 
+  private isCurrentItemPlaying(): boolean {
+    if (!this.currentItem) return false;
+    if (this.audioService) {
+      return (
+        this.audioService.getCurrentItem()?.guid === this.currentItem.guid &&
+        this.audioService.isPlaying()
+      );
+    }
+    return !!(this.audioElement && !this.audioElement.paused);
+  }
+
+  private parseDuration(raw?: string): number {
+    if (!raw) return 0;
+    const trimmed = raw.trim();
+    if (/^\d+$/.test(trimmed)) {
+      return Number(trimmed);
+    }
+    if (trimmed.includes(":")) {
+      const parts = trimmed.split(":").map(Number);
+      if (!parts.some((p) => isNaN(p))) {
+        if (parts.length === 3) {
+          return parts[0] * 3600 + parts[1] * 60 + parts[2];
+        }
+        if (parts.length === 2) {
+          return parts[0] * 60 + parts[1];
+        }
+      }
+    }
+    return 0;
+  }
+
   private updateProgressDisplay(): void {
+    if (this.audioService) {
+      const isCurrentActive =
+        this.audioService.getCurrentItem()?.guid === this.currentItem?.guid;
+      if (isCurrentActive) {
+        const currentTime = this.audioService.getCurrentTime();
+        const duration = this.audioService.getDuration();
+        if (this.currentTimeEl) {
+          this.currentTimeEl.textContent = this.formatTime(currentTime);
+        }
+        if (duration && !isNaN(duration)) {
+          if (this.durationEl) {
+            this.durationEl.textContent = this.formatTime(duration);
+          }
+
+          if (this.progressBarEl) {
+            this.progressBarEl.value = currentTime;
+            this.progressBarEl.max = duration;
+          }
+
+          if (this.progressFilledEl) {
+            const percent = (currentTime / duration) * 100;
+            this.progressFilledEl.style.setProperty(
+              "--progress-percent",
+              `${percent}%`,
+            );
+          }
+        }
+        return;
+      }
+
+      if (!this.currentItem) return;
+      const savedProgress = this.progressTrackingEnabled
+        ? (this.currentItem.playbackProgress ??
+          this.progressData.get(this.currentItem.guid))
+        : undefined;
+      const pos = savedProgress?.position ?? 0;
+      let dur = savedProgress?.duration ?? 0;
+      if (!dur) {
+        dur = this.parseDuration(
+          this.currentItem.duration || this.currentItem.itunes?.duration,
+        );
+      }
+      if (this.currentTimeEl) {
+        this.currentTimeEl.textContent = this.formatTime(pos);
+      }
+      if (this.durationEl) {
+        this.durationEl.textContent = dur > 0 ? this.formatTime(dur) : "--:--";
+      }
+      if (this.progressBarEl) {
+        this.progressBarEl.value = pos;
+        this.progressBarEl.max = dur > 0 ? dur : 100;
+      }
+      if (this.progressFilledEl) {
+        const percent = dur > 0 ? (pos / dur) * 100 : 0;
+        this.progressFilledEl.style.setProperty(
+          "--progress-percent",
+          `${percent}%`,
+        );
+      }
+      return;
+    }
+
     if (!this.audioElement) return;
     const currentTime = this.formatTime(this.audioElement.currentTime);
     if (this.currentTimeEl) {
@@ -1264,6 +1493,7 @@ export class PodcastPlayer {
   }
 
   private saveProgress(flush = false): void {
+    if (this.audioService) return;
     if (!this.progressTrackingEnabled) return;
     if (!this.audioElement || !this.currentItem) return;
 
@@ -1345,6 +1575,13 @@ export class PodcastPlayer {
 
   destroy(): void {
     this.stopProgressTracking();
+
+    if (this.audioService) {
+      this.audioServiceUnsubs.forEach((unsub) => unsub());
+      this.audioServiceUnsubs = [];
+      this.audioElement = null;
+      return;
+    }
 
     if (this.audioElement) {
       this.saveProgress(true);

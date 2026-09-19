@@ -21,6 +21,9 @@ interface MediaSettingsPlugin {
   getActiveReaderView?(): Promise<{
     updatePodcastTheme: (theme: PodcastTheme) => void;
   } | null>;
+  podcastMiniPlayer?: {
+    updateTheme: (theme: string) => void;
+  } | null;
 }
 
 export function renderMediaSettingsTab(
@@ -105,6 +108,7 @@ export function renderMediaSettingsTab(
           const theme = value as PodcastTheme;
           plugin.settings.media.podcastTheme = theme;
           await plugin.saveSettings();
+          plugin.podcastMiniPlayer?.updateTheme(theme);
           const readerView = await plugin.getActiveReaderView?.();
           if (readerView) {
             readerView.updatePodcastTheme(theme);
