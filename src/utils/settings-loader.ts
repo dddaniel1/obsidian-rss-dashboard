@@ -200,6 +200,13 @@ export function loadAndNormalizeSettings(
     settings.autoBackup ?? {},
   );
 
+  if (
+    settings.defaultLibrarySource !== "local" &&
+    settings.defaultLibrarySource !== "freshrss"
+  ) {
+    settings.defaultLibrarySource = "local";
+  }
+
   settings.feeds = Array.isArray(settings.feeds) ? settings.feeds : [];
 
   for (const feed of settings.feeds) {

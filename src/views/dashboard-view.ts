@@ -155,6 +155,7 @@ export class RssDashboardView extends ItemView {
   ) {
     super(leaf);
     this.rootPlugin = plugin;
+    this.applyInitialLibrarySource();
     this.settings = this.plugin.settings;
     this.collapsedFolders = this.settings.collapsedFolders || [];
 
@@ -184,6 +185,36 @@ export class RssDashboardView extends ItemView {
     this.setupScope();
   }
 
+  getLibrarySource(): "local" | "freshrss" {
+    return this.librarySource;
+  }
+
+  private applyInitialLibrarySource(): void {
+    const configuredSource =
+      this.rootPlugin?.settings?.defaultLibrarySource ?? "local";
+    if (
+      configuredSource === "freshrss" &&
+      this.rootPlugin?.syncRuntime?.service
+    ) {
+      try {
+        this.syncSource = new DashboardSyncSource(
+          this.rootPlugin,
+          this.rootPlugin.syncRuntime,
+        );
+        this.plugin = this.syncSource.createPluginAdapter();
+        this.librarySource = "freshrss";
+        this.settings = this.plugin.settings;
+        this.collapsedFolders = this.settings.collapsedFolders ?? [];
+      } catch {
+        this.syncSource = undefined;
+        this.plugin = this.rootPlugin;
+        this.librarySource = "local";
+        this.settings = this.plugin.settings;
+        this.collapsedFolders = this.settings.collapsedFolders ?? [];
+      }
+    }
+  }
+
   async setLibrarySource(source: "local" | "freshrss"): Promise<void> {
     if (source === this.librarySource) return;
     if (source === "freshrss" && !this.rootPlugin.syncRuntime?.service) {
@@ -203,6 +234,10 @@ export class RssDashboardView extends ItemView {
       this.plugin = this.rootPlugin;
     }
     this.librarySource = source;
+    if (this.rootPlugin?.settings && this.rootPlugin.settings.defaultLibrarySource !== source) {
+      this.rootPlugin.settings.defaultLibrarySource = source;
+      await this.rootPlugin.saveSettings();
+    }
     this.settings = this.plugin.settings;
     this.currentFolder = null;
     this.currentFeed = null;
@@ -713,10 +748,28 @@ export class RssDashboardView extends ItemView {
 
   // --- Render pipeline ---
   onOpen(): Promise<void> {
+    if (
+      this.librarySource === "local" &&
+      this.rootPlugin?.settings?.defaultLibrarySource === "freshrss" &&
+      this.rootPlugin?.syncRuntime?.service
+    ) {
+      this.applyInitialLibrarySource();
+    }
+
     this.sourceUnsubscribe = this.rootPlugin.syncRuntime?.subscribe(() => {
       if (this.syncSource) {
+        if (!this.rootPlugin.syncRuntime?.service) {
+          void this.setLibrarySource("local");
+          return;
+        }
         this.syncSource.refresh();
         this.refresh();
+      } else if (
+        this.librarySource === "local" &&
+        this.rootPlugin?.settings?.defaultLibrarySource === "freshrss" &&
+        this.rootPlugin?.syncRuntime?.service
+      ) {
+        void this.setLibrarySource("freshrss");
       }
     });
     this.articleRenderer = new ArticleRenderer({

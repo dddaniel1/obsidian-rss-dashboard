@@ -108,6 +108,22 @@ describe("settings-loader", () => {
       expect(result.maxItems).toBe(42);
       expect(result.refreshInterval).toBe(DEFAULT_SETTINGS.refreshInterval);
     });
+    it("normalizes defaultLibrarySource to local when missing or invalid, and preserves freshrss", async () => {
+      const { loadAndNormalizeSettings } =
+        await import("../../../src/utils/settings-loader");
+
+      expect(loadAndNormalizeSettings({}).defaultLibrarySource).toBe("local");
+      expect(
+        loadAndNormalizeSettings({
+          defaultLibrarySource: "invalid" as unknown as "local",
+        }).defaultLibrarySource,
+      ).toBe("local");
+      expect(
+        loadAndNormalizeSettings({
+          defaultLibrarySource: "freshrss",
+        }).defaultLibrarySource,
+      ).toBe("freshrss");
+    });
 
     it("normalizes refreshInterval via normalizeRefreshIntervalMinutes", async () => {
       const { normalizeRefreshIntervalMinutes } =

@@ -30,7 +30,97 @@ describe("Dashboard library source switching", () => {
     expect(host.settings.feeds[0].title).toBe("Local");
     await view.setLibrarySource("local");
     expect(view["settings"]).toBe(settings);
+    expect(host.settings.feeds[0].title).toBe("Local");
+    expect(host.settings.defaultLibrarySource).toBe("local");
+    runtime.stop();
+  });
+
+  it("persists library source selection when switching sources", async () => {
+    const app = new App();
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.defaultLibrarySource = "local";
+    const runtime = new SyncRuntime({ exists: () => Promise.resolve(false), read: () => Promise.resolve(""), write: () => Promise.resolve() }, "test", () => Promise.resolve({ status: 200, text: "" }));
+    const state = emptySyncState("account");
+    state.subscriptions = [{ id: "feed/1", title: "Remote", url: "https://same.example/rss", folder: "" }];
+    runtime.service = new SyncService(state, () => Promise.resolve());
+    const host = {
+      app, settings, syncRuntime: runtime, saveSettings: vi.fn(() => Promise.resolve()),
+      activateDiscoverView: vi.fn(), openSettingsToTab: vi.fn(), openTagsSettings: vi.fn(),
+    } as unknown as RssDashboardPlugin;
+    const view = new RssDashboardView(new WorkspaceLeaf(app), host);
+    vi.spyOn(view, "render").mockImplementation(() => {});
+
+    await view.setLibrarySource("freshrss");
+    expect(host.settings.defaultLibrarySource).toBe("freshrss");
+    expect(host.saveSettings).toHaveBeenCalled();
+
+    await view.setLibrarySource("local");
+    expect(host.settings.defaultLibrarySource).toBe("local");
+    runtime.stop();
+  });
+
+  it("automatically initializes in FreshRSS mode when configured in settings and sync service is available", () => {
+    const app = new App();
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.defaultLibrarySource = "freshrss";
+    const runtime = new SyncRuntime({ exists: () => Promise.resolve(false), read: () => Promise.resolve(""), write: () => Promise.resolve() }, "test", () => Promise.resolve({ status: 200, text: "" }));
+    const state = emptySyncState("account");
+    state.subscriptions = [{ id: "feed/1", title: "Remote", url: "https://same.example/rss", folder: "" }];
+    runtime.service = new SyncService(state, () => Promise.resolve());
+    const host = {
+      app, settings, syncRuntime: runtime, saveSettings: vi.fn(() => Promise.resolve()),
+      activateDiscoverView: vi.fn(), openSettingsToTab: vi.fn(), openTagsSettings: vi.fn(),
+    } as unknown as RssDashboardPlugin;
+
+    const view = new RssDashboardView(new WorkspaceLeaf(app), host);
+    expect(view.getLibrarySource()).toBe("freshrss");
+    expect(view["settings"].feeds[0].title).toBe("Remote");
+    runtime.stop();
+  });
+
+  it("falls back to local library when FreshRSS sync is not connected or initialized", () => {
+    const app = new App();
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.defaultLibrarySource = "freshrss";
+    settings.feeds = [{ title: "Local", url: "https://same.example/rss", folder: "", items: [], lastUpdated: 0 }];
+    const runtime = new SyncRuntime({ exists: () => Promise.resolve(false), read: () => Promise.resolve(""), write: () => Promise.resolve() }, "test", () => Promise.resolve({ status: 200, text: "" }));
+    // Note: runtime.service is undefined (not connected)
+    const host = {
+      app, settings, syncRuntime: runtime, saveSettings: vi.fn(() => Promise.resolve()),
+      activateDiscoverView: vi.fn(), openSettingsToTab: vi.fn(), openTagsSettings: vi.fn(),
+    } as unknown as RssDashboardPlugin;
+
+    const view = new RssDashboardView(new WorkspaceLeaf(app), host);
+    expect(view.getLibrarySource()).toBe("local");
     expect(view["settings"].feeds[0].title).toBe("Local");
+    runtime.stop();
+  });
+
+  it("automatically switches to FreshRSS if sync service becomes available after onOpen", async () => {
+    const app = new App();
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.defaultLibrarySource = "freshrss";
+    settings.feeds = [{ title: "Local", url: "https://same.example/rss", folder: "", items: [], lastUpdated: 0 }];
+    const runtime = new SyncRuntime({ exists: () => Promise.resolve(false), read: () => Promise.resolve(""), write: () => Promise.resolve() }, "test", () => Promise.resolve({ status: 200, text: "" }));
+    const host = {
+      app, settings, syncRuntime: runtime, saveSettings: vi.fn(() => Promise.resolve()),
+      activateDiscoverView: vi.fn(), openSettingsToTab: vi.fn(), openTagsSettings: vi.fn(),
+    } as unknown as RssDashboardPlugin;
+
+    const view = new RssDashboardView(new WorkspaceLeaf(app), host);
+    expect(view.getLibrarySource()).toBe("local");
+    vi.spyOn(view, "render").mockImplementation(() => {});
+    await view.onOpen();
+
+    // Simulate sync connecting later
+    const state = emptySyncState("account");
+    state.subscriptions = [{ id: "feed/1", title: "Remote", url: "https://same.example/rss", folder: "" }];
+    runtime.service = new SyncService(state, () => Promise.resolve());
+    runtime["emit"]();
+    await Promise.resolve();
+
+    expect(view.getLibrarySource()).toBe("freshrss");
+    expect(view["settings"].feeds[0].title).toBe("Remote");
     runtime.stop();
   });
 });

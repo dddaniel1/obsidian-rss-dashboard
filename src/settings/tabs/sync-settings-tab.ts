@@ -2,9 +2,13 @@ import { Notice, Setting } from "obsidian";
 import { SyncError } from "../../services/sync/sync-provider";
 import type { SyncRuntime } from "../../services/sync/sync-runtime";
 
+import type { RssDashboardSettings } from "../../types/types";
+
 export interface SyncSettingsHost {
+  settings?: RssDashboardSettings;
   syncRuntime?: SyncRuntime;
   openSyncView(): Promise<void>;
+  saveSettings?: () => Promise<void>;
 }
 export function renderSyncSettingsTab(container: HTMLElement, host: SyncSettingsHost): () => void {
   const runtime = host.syncRuntime;
@@ -58,6 +62,21 @@ export function renderSyncSettingsTab(container: HTMLElement, host: SyncSettings
   new Setting(container).setName("Automatic sync").setDesc("Sync every five minutes while the plugin is running; retry temporary failures automatically.").addToggle((toggle) => {
     toggle.setValue(runtime.account?.automatic ?? true).onChange((value) => { run(() => runtime.setAutomatic(value)); });
   });
+  new Setting(container)
+    .setName("Default library")
+    .setDesc("Choose which library loads by default when opening the RSS dashboard. If FreshRSS is disconnected, local library is loaded as a fallback.")
+    .addDropdown((dropdown) => {
+      dropdown
+        .addOption("local", "Local")
+        .addOption("freshrss", "FreshRSS")
+        .setValue(host.settings?.defaultLibrarySource ?? "local")
+        .onChange(async (value) => {
+          if (host.settings && (value === "local" || value === "freshrss")) {
+            host.settings.defaultLibrarySource = value;
+            await host.saveSettings?.();
+          }
+        });
+    });
   new Setting(container)
     .addButton((button) => button.setButtonText("Sync now").onClick(() => { run(() => runtime.sync()); }))
     .addButton((button) => button.setButtonText("Open FreshRSS library").onClick(() => { run(() => host.openSyncView()); }))

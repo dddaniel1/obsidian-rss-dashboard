@@ -524,6 +524,13 @@ export interface RssDashboardSettings {
    */
   sidebarTagFilterMode: "or" | "and" | "not";
 
+  /**
+   * Default/preferred library source loaded by the dashboard view.
+   * "local" = Local subscriptions
+   * "freshrss" = FreshRSS remote library
+   */
+  defaultLibrarySource: "local" | "freshrss";
+
   autoBackup: AutoBackupSettings;
   storageMode: FeedStorageMode;
   /**
@@ -803,6 +810,7 @@ export const DEFAULT_SETTINGS: RssDashboardSettings = {
     logic: "OR",
   },
   sidebarTagFilterMode: "or",
+  defaultLibrarySource: "local",
   autoBackup: {
     backupDataJson: false,
     backupOpml: true,

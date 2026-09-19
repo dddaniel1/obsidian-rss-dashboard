@@ -1,13 +1,17 @@
 import { ItemView, type App, type WorkspaceLeaf } from "obsidian";
 import type { SyncRuntime } from "../services/sync/sync-runtime";
+import type { RssDashboardSettings } from "../types/types";
 
 export const SYNC_VIEW_TYPE = "rss-freshrss-library";
+
 export interface SyncViewHost {
   app: App;
+  settings?: RssDashboardSettings;
   syncRuntime?: SyncRuntime;
   openSyncView(): Promise<void>;
   openSyncSettings(): void;
   saveSyncArticle(id: string): Promise<void>;
+  saveSettings?(): Promise<void>;
 }
 
 /** Redirect legacy preview workspace tabs into the existing RSS dashboard. */
