@@ -412,6 +412,28 @@
   background-color: var(--background-modifier-active-hover);
 }
 
+.rss-reader-translate-button.is-loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.rss-reader-translate-button.is-loading svg {
+  animation: rss-reader-translate-spin 1s linear infinite;
+  -webkit-animation: rss-reader-translate-spin 1s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+  will-change: transform;
+}
+
+@keyframes rss-reader-translate-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .rss-nitter-stats {
   display: flex;
   flex-wrap: wrap;

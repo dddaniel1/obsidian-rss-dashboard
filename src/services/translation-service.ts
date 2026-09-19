@@ -37,6 +37,13 @@ function hasMeaningfulText(element: Element): boolean {
 }
 
 export class TranslationService {
+  private static cache = new Map<string, string>();
+  private static readonly MAX_CACHE_SIZE = 1000;
+
+  public static clearCache(): void {
+    this.cache.clear();
+  }
+
   public static async translateText(
     text: string,
     targetLang: string,
@@ -46,8 +53,22 @@ export class TranslationService {
       return { text: "", provider: "google" };
     }
 
+    const cacheKey = `${targetLang}:${trimmed}`;
+    const cached = this.cache.get(cacheKey);
+    if (cached !== undefined) {
+      return { text: cached, provider: "google" };
+    }
+
     try {
-      return await this.translateWithGoogle(trimmed, targetLang);
+      const result = await this.translateWithGoogle(trimmed, targetLang);
+      if (this.cache.size >= this.MAX_CACHE_SIZE) {
+        const firstKey = this.cache.keys().next().value;
+        if (firstKey) {
+          this.cache.delete(firstKey);
+        }
+      }
+      this.cache.set(cacheKey, result.text);
+      return result;
     } catch (error) {
       throw new Error(
         `Translation failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -56,22 +77,87 @@ export class TranslationService {
   }
 
   /**
-   * Translate a batch of paragraphs. Google's free endpoint accepts a single
-   * text per call, so paragraphs are translated sequentially.
+   * Translate a batch of paragraphs with bounded concurrency and optional
+   * progress reporting. Preserves the exact array length and 1:1 index mapping
+   * with the input paragraphs.
    */
   public static async translateBatch(
     paragraphs: string[],
     targetLang: string,
+    onProgress?: (
+      completed: number,
+      total: number,
+      index: number,
+      result: TranslationResult,
+    ) => void,
+    concurrency = 4,
   ): Promise<TranslationResult[]> {
-    const nonEmpty = paragraphs.map((p) => p.trim()).filter(Boolean);
-    if (nonEmpty.length === 0) {
+    if (paragraphs.length === 0) {
       return [];
     }
 
-    const results: TranslationResult[] = [];
-    for (const paragraph of nonEmpty) {
-      results.push(await this.translateWithGoogle(paragraph, targetLang));
+    const results: TranslationResult[] = new Array<TranslationResult>(
+      paragraphs.length,
+    );
+    let completedCount = 0;
+    const totalCount = paragraphs.length;
+
+    const tasks: Array<{ index: number; text: string }> = [];
+    for (let i = 0; i < paragraphs.length; i++) {
+      const trimmed = (paragraphs[i] || "").trim();
+      if (!trimmed) {
+        results[i] = { text: "", provider: "google" };
+        completedCount++;
+        onProgress?.(completedCount, totalCount, i, results[i]);
+      } else {
+        tasks.push({ index: i, text: trimmed });
+      }
     }
+
+    if (tasks.length === 0) {
+      return results;
+    }
+
+    let nextTaskIndex = 0;
+    let lastErrorMessage: string | null = null;
+    let successCount = 0;
+
+    const workerCount = Math.min(concurrency, tasks.length);
+    const workers = Array.from({ length: workerCount }, async () => {
+      while (nextTaskIndex < tasks.length) {
+        const current = tasks[nextTaskIndex++];
+        try {
+          const res = await this.translateText(current.text, targetLang);
+          results[current.index] = res;
+          if (res.text) {
+            successCount++;
+          }
+        } catch (error) {
+          const msg =
+            error instanceof Error ? error.message : "Translation failed";
+          lastErrorMessage = msg;
+          console.warn(
+            "[RSS Dashboard] Paragraph translation failed:",
+            msg,
+          );
+          results[current.index] = { text: "", provider: "google" };
+        }
+        completedCount++;
+        onProgress?.(
+          completedCount,
+          totalCount,
+          current.index,
+          results[current.index],
+        );
+      }
+    });
+
+    await Promise.all(workers);
+
+    if (successCount === 0 && lastErrorMessage !== null) {
+      throw new Error(lastErrorMessage);
+    }
+
     return results;
   }
 

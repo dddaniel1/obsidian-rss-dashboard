@@ -713,6 +713,10 @@ export class Notice {
     console.debug("[Stub Notice]", message);
   }
 
+  setMessage(_message: string | DocumentFragment): this {
+    return this;
+  }
+
   hide(): void {}
 }
 

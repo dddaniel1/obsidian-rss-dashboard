@@ -123,6 +123,7 @@ export class ReaderView extends ItemView {
   private translateButton: HTMLElement | null = null;
   private translationActive = false;
   private translationInFlight = false;
+  private translationLoadingNotice: Notice | null = null;
   private fullTextButton: HTMLElement | null = null;
   private fullArticleLoading = false;
   private articleDisplayGeneration = 0;
@@ -1184,6 +1185,9 @@ export class ReaderView extends ItemView {
     this.fullArticleLoading = false;
     this.fullArticleLoadingNotice?.hide();
     this.fullArticleLoadingNotice = null;
+    this.translationInFlight = false;
+    this.translationLoadingNotice?.hide();
+    this.translationLoadingNotice = null;
     this.closeTagsDropdown();
 
     if (this.readerFormatPortal) {
@@ -1557,6 +1561,9 @@ export class ReaderView extends ItemView {
     this.fullArticleLoading = false;
     this.fullArticleLoadingNotice?.hide();
     this.fullArticleLoadingNotice = null;
+    this.translationInFlight = false;
+    this.translationLoadingNotice?.hide();
+    this.translationLoadingNotice = null;
     this.currentFullContent = undefined;
     if (this.currentItem?.guid !== item.guid) {
       this.lastRestrictedNoticeGuid = null;
@@ -1755,6 +1762,9 @@ export class ReaderView extends ItemView {
     this.fullArticleLoadingNotice?.hide();
     this.fullArticleLoadingNotice = null;
     this.fullArticleLoading = false;
+    this.translationInFlight = false;
+    this.translationLoadingNotice?.hide();
+    this.translationLoadingNotice = null;
     this.currentFullContent = undefined;
     this.currentContentIsFullArticle = false;
     this.currentFullContentFailureType = "none";
@@ -2053,6 +2063,10 @@ export class ReaderView extends ItemView {
     }
 
     this.translationActive = false;
+    this.translationInFlight = false;
+    this.translationLoadingNotice?.hide();
+    this.translationLoadingNotice = null;
+    this.updateTranslateButtonState();
   }
 
   private async toggleTranslation(): Promise<void> {
@@ -2088,34 +2102,89 @@ export class ReaderView extends ItemView {
       return;
     }
 
+    const generation = this.articleDisplayGeneration;
     this.translationInFlight = true;
     this.updateTranslateButtonState();
+
+    const loadingNotice = new Notice("Translating article...", 0);
+    this.translationLoadingNotice = loadingNotice;
+
+    let hasInsertedAny = false;
+
     try {
       const results = await TranslationService.translateBatch(
         blocks.map((block) => block.textContent || ""),
         translation.targetLanguage,
+        (completed, total, index, result) => {
+          if (generation !== this.articleDisplayGeneration) return;
+          if (!this.readingContainer) return;
+
+          if (this.translationLoadingNotice) {
+            this.translationLoadingNotice.setMessage(
+              `Translating article (${completed}/${total})...`,
+            );
+          }
+
+          if (this.translateButton) {
+            const label = `Translating article (${completed}/${total})...`;
+            this.translateButton.setAttribute("title", label);
+            this.translateButton.setAttribute("aria-label", label);
+          }
+
+          const block = blocks[index];
+          if (block && this.readingContainer.contains(block) && result.text) {
+            const nextEl = block.nextElementSibling;
+            if (
+              !nextEl ||
+              !nextEl.classList.contains("rss-reader-translation")
+            ) {
+              const translationEl = this.contentEl.createEl("p", {
+                cls: "rss-reader-translation",
+              });
+              translationEl.textContent = result.text;
+              block.insertAdjacentElement("afterend", translationEl);
+              hasInsertedAny = true;
+            }
+          }
+        },
       );
+
+      if (generation !== this.articleDisplayGeneration) return;
 
       blocks.forEach((block, index) => {
         const result = results[index];
-        if (!result?.text) return;
-        const translationEl = this.contentEl.createEl("p", {
-          cls: "rss-reader-translation",
-        });
-        translationEl.textContent = result.text;
-        block.insertAdjacentElement("afterend", translationEl);
+        if (!result?.text || !this.readingContainer?.contains(block)) return;
+        const nextEl = block.nextElementSibling;
+        if (!nextEl || !nextEl.classList.contains("rss-reader-translation")) {
+          const translationEl = this.contentEl.createEl("p", {
+            cls: "rss-reader-translation",
+          });
+          translationEl.textContent = result.text;
+          block.insertAdjacentElement("afterend", translationEl);
+          hasInsertedAny = true;
+        }
       });
 
-      this.translationActive = true;
+      if (hasInsertedAny) {
+        this.translationActive = true;
+        new Notice("Article translated.");
+      } else {
+        new Notice("Nothing to translate in this article.");
+      }
     } catch (error) {
+      if (generation !== this.articleDisplayGeneration) return;
       console.error(
         "[RSS Dashboard] Reader translation failed:",
         error instanceof Error ? error.message : String(error),
       );
       new Notice("Translation failed. Check the console for details.");
     } finally {
-      this.translationInFlight = false;
-      this.updateTranslateButtonState();
+      if (generation === this.articleDisplayGeneration) {
+        this.translationInFlight = false;
+        this.translationLoadingNotice?.hide();
+        this.translationLoadingNotice = null;
+        this.updateTranslateButtonState();
+      }
     }
   }
 
@@ -2181,11 +2250,29 @@ export class ReaderView extends ItemView {
 
   private updateTranslateButtonState(): void {
     if (!this.translateButton) return;
+
+    if (this.translationInFlight) {
+      this.translateButton.addClass("is-loading");
+      this.translateButton.removeClass("active");
+      this.translateButton.setAttribute("aria-busy", "true");
+      this.translateButton.setAttribute("aria-pressed", "false");
+      this.translateButton.setAttribute("title", "Translating article...");
+      this.translateButton.setAttribute("aria-label", "Translating article...");
+      return;
+    }
+
+    this.translateButton.removeClass("is-loading");
+    this.translateButton.removeAttribute("aria-busy");
     this.translateButton.toggleClass("active", this.translationActive);
     this.translateButton.setAttribute(
       "aria-pressed",
       this.translationActive ? "true" : "false",
     );
+    const title = this.translationActive
+      ? "Hide translation"
+      : "Translate article";
+    this.translateButton.setAttribute("title", title);
+    this.translateButton.setAttribute("aria-label", title);
   }
 
   private renderRestrictedBanner(item: FeedItem): void {

@@ -86,6 +86,81 @@ describe("TranslationService", () => {
       expect(results.map((r) => r.text)).toEqual(["translated", "translated"]);
       expect(requestUrlSpy).toHaveBeenCalledTimes(2);
     });
+
+    it("preserves indices and skips network requests for empty paragraphs", async () => {
+      requestUrlSpy.mockImplementation(async () =>
+        createMockResponse("", [
+          [["translated", "en", null, null], null, null, null],
+        ]) as unknown as MockResponse,
+      );
+
+      const results = await TranslationService.translateBatch(
+        ["First", "   ", "Third"],
+        "zh-CN",
+      );
+
+      expect(results.length).toBe(3);
+      expect(results[0].text).toBe("translated");
+      expect(results[1].text).toBe("");
+      expect(results[2].text).toBe("translated");
+      expect(requestUrlSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("reports progress as paragraphs are translated", async () => {
+      requestUrlSpy.mockImplementation(async () =>
+        createMockResponse("", [
+          [["translated", "en", null, null], null, null, null],
+        ]) as unknown as MockResponse,
+      );
+
+      const progressCalls: Array<{ completed: number; total: number; index: number }> = [];
+      await TranslationService.translateBatch(
+        ["Alpha", "Beta"],
+        "zh-CN",
+        (completed, total, index) => {
+          progressCalls.push({ completed, total, index });
+        },
+      );
+
+      expect(progressCalls.length).toBe(2);
+      expect(progressCalls[0].total).toBe(2);
+      expect(progressCalls[1].completed).toBe(2);
+    });
+
+    it("caches translated text in memory to avoid redundant requests", async () => {
+      requestUrlSpy.mockImplementation(async () =>
+        createMockResponse("", [
+          [["你好世界", "en", null, null], null, null, null],
+        ]) as unknown as MockResponse,
+      );
+
+      TranslationService.clearCache();
+      const first = await TranslationService.translateText("Hello world unique", "zh-CN");
+      const second = await TranslationService.translateText("Hello world unique", "zh-CN");
+
+      expect(first.text).toBe("你好世界");
+      expect(second.text).toBe("你好世界");
+      expect(requestUrlSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("continues translating remaining paragraphs when one paragraph fails", async () => {
+      requestUrlSpy.mockImplementation(async (options: { url: string }) => {
+        if (options.url.includes("fail")) {
+          throw new Error("Network timeout");
+        }
+        return createMockResponse("", [
+          [["success", "en", null, null], null, null, null],
+        ]) as unknown as MockResponse;
+      });
+
+      const results = await TranslationService.translateBatch(
+        ["fail-this", "pass-this"],
+        "zh-CN",
+      );
+
+      expect(results[0].text).toBe("");
+      expect(results[1].text).toBe("success");
+    });
   });
 
   describe("collectTranslatableBlocks", () => {

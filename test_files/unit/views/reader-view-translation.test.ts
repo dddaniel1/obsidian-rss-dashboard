@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as obsidian from "obsidian";
 import { ReaderView } from "../../../src/views/reader-view";
+import { TranslationService } from "../../../src/services/translation-service";
 import {
   FeedItem,
   RssDashboardSettings,
@@ -63,6 +64,7 @@ describe("ReaderView translation", () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
+    TranslationService.clearCache();
     fetchFullArticleContentWithOutcomeMock.mockResolvedValue({
       content: "",
       failureType: "none",
@@ -208,5 +210,97 @@ describe("ReaderView translation", () => {
       ".rss-reader-translate-button",
     );
     expect(buttons.length).toBe(1);
+  });
+
+  it("updates translate button state with is-loading and progress title while in flight", async () => {
+    const resolvers: Array<(value: unknown) => void> = [];
+    const requestUrlSpy = vi.spyOn(obsidian, "requestUrl");
+    requestUrlSpy.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+
+    const harness = getHarness(readerView);
+    harness.fetchFullArticleContent = vi.fn().mockResolvedValue("");
+    harness.shouldSkipFullArticleFetch = () => true;
+
+    await readerView.displayItem(createItem());
+
+    const translateButton = harness.contentEl.querySelector(
+      ".rss-reader-translate-button",
+    ) as HTMLElement;
+    expect(translateButton).toBeTruthy();
+    expect(translateButton.classList.contains("is-loading")).toBe(false);
+
+    translateButton.click();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(translateButton.classList.contains("is-loading")).toBe(true);
+    expect(translateButton.getAttribute("aria-busy")).toBe("true");
+    expect(translateButton.getAttribute("title")).toContain("Translating article");
+
+    for (const r of resolvers) {
+      r({
+        status: 200,
+        headers: {},
+        arrayBuffer: new ArrayBuffer(0),
+        json: [[["你好，世界", "en", null, null], null, null, null]],
+        text: "",
+      });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(translateButton.classList.contains("is-loading")).toBe(false);
+    expect(translateButton.classList.contains("active")).toBe(true);
+    expect(translateButton.hasAttribute("aria-busy")).toBe(false);
+    expect(translateButton.getAttribute("title")).toBe("Hide translation");
+  });
+
+  it("aborts DOM translation updates when switching articles during an in-flight translation", async () => {
+    const resolvers: Array<(value: unknown) => void> = [];
+    const requestUrlSpy = vi.spyOn(obsidian, "requestUrl");
+    requestUrlSpy.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+
+    const harness = getHarness(readerView);
+    harness.fetchFullArticleContent = vi.fn().mockResolvedValue("");
+    harness.shouldSkipFullArticleFetch = () => true;
+
+    await readerView.displayItem(createItem({ guid: "article-1" }));
+
+    const translateButton = harness.contentEl.querySelector(
+      ".rss-reader-translate-button",
+    ) as HTMLElement;
+    translateButton.click();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(translateButton.classList.contains("is-loading")).toBe(true);
+
+    // Switch to another article while translation is in flight
+    await readerView.displayItem(
+      createItem({ guid: "article-2", content: "<p>New article content</p>" }),
+    );
+
+    // Now resolve the old translation requests
+    for (const r of resolvers) {
+      r({
+        status: 200,
+        headers: {},
+        arrayBuffer: new ArrayBuffer(0),
+        json: [[["旧文章翻译", "en", null, null], null, null, null]],
+        text: "",
+      });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const translations = harness.readingContainer.querySelectorAll(
+      ".rss-reader-translation",
+    );
+    expect(translations.length).toBe(0);
   });
 });
