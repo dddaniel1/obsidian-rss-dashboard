@@ -75,6 +75,7 @@ type SidebarKeyboardController = {
 export class RssDashboardView extends ItemView {
   private static readonly CARD_LAYOUT_RELAYOUT_DELAY_MS = 90;
   private static readonly CARD_LAYOUT_SAVE_DELAY_MS = 120;
+  private static readonly SAVED_ARTICLE_VERIFY_INTERVAL_MS = 60_000;
   private rootPlugin: RssDashboardPlugin;
   private syncSource?: DashboardSyncSource;
   private sourceUnsubscribe?: () => void;
@@ -101,6 +102,7 @@ export class RssDashboardView extends ItemView {
   private articleList!: ArticleList;
   private sidebarContainer: HTMLElement | null = null;
   private verificationTimeout: number | null = null;
+  private lastSavedArticleVerificationTime = 0;
   private scheduledRenderTimeout: number | null = null;
   private isRenderInProgress = false;
   private hasPendingRender = false;
@@ -768,7 +770,7 @@ export class RssDashboardView extends ItemView {
           window.clearTimeout(this.verificationTimeout);
         }
         this.verificationTimeout = window.setTimeout(() => {
-          void this.verifySavedArticles();
+          void this.verifySavedArticles(true);
         }, 300000);
       }),
     );
@@ -1680,13 +1682,13 @@ export class RssDashboardView extends ItemView {
           (feed.folder && allFolders.has(feed.folder)) ||
           (this.selectedFeeds && this.selectedFeeds.includes(feed.url))
         ) {
-          articles = articles.concat(
-            feed.items.map((item) => ({
+          for (const item of feed.items) {
+            articles.push({
               ...item,
               feedTitle: feed.title,
               feedUrl: feed.url,
-            })),
-          );
+            });
+          }
         }
       }
     } else if (this.currentFolder) {
@@ -1700,50 +1702,49 @@ export class RssDashboardView extends ItemView {
       ];
       if (specialFolders.includes(this.currentFolder)) {
         for (const feed of this.settings.feeds) {
-          articles = articles.concat(
-            feed.items
-              .filter((item) => {
-                if (this.currentFolder === "starred") return item.starred;
-                if (this.currentFolder === "unread") return !item.read;
-                if (this.currentFolder === "read") return item.read;
-                if (this.currentFolder === "saved") return item.saved;
-                if (this.currentFolder === "videos")
-                  return item.mediaType === "video";
-                if (this.currentFolder === "podcasts")
-                  return item.mediaType === "podcast";
-                return true;
-              })
-              .map((item) => ({
-                ...item,
-                feedTitle: feed.title,
-                feedUrl: feed.url,
-              })),
-          );
+          for (const item of feed.items) {
+            if (this.currentFolder === "starred" && !item.starred) continue;
+            if (this.currentFolder === "unread" && item.read) continue;
+            if (this.currentFolder === "read" && !item.read) continue;
+            if (this.currentFolder === "saved" && !item.saved) continue;
+            if (this.currentFolder === "videos" && item.mediaType !== "video")
+              continue;
+            if (
+              this.currentFolder === "podcasts" &&
+              item.mediaType !== "podcast"
+            )
+              continue;
+            articles.push({
+              ...item,
+              feedTitle: feed.title,
+              feedUrl: feed.url,
+            });
+          }
         }
       } else {
         const allFolders = this.getAllDescendantFolders(this.currentFolder);
         allFolders.push(this.currentFolder);
         for (const feed of this.settings.feeds) {
           if (feed.folder && allFolders.includes(feed.folder)) {
-            articles = articles.concat(
-              feed.items.map((item) => ({
+            for (const item of feed.items) {
+              articles.push({
                 ...item,
                 feedTitle: feed.title,
                 feedUrl: feed.url,
-              })),
-            );
+              });
+            }
           }
         }
       }
     } else {
       for (const feed of this.settings.feeds) {
-        articles = articles.concat(
-          feed.items.map((item) => ({
+        for (const item of feed.items) {
+          articles.push({
             ...item,
             feedTitle: feed.title,
             feedUrl: feed.url,
-          })),
-        );
+          });
+        }
       }
     }
 
@@ -1817,13 +1818,13 @@ export class RssDashboardView extends ItemView {
           (feed.folder && allFolders.has(feed.folder)) ||
           (this.selectedFeeds && this.selectedFeeds.includes(feed.url))
         ) {
-          articles = articles.concat(
-            feed.items.map((item) => ({
+          for (const item of feed.items) {
+            articles.push({
               ...item,
               feedTitle: feed.title,
               feedUrl: feed.url,
-            })),
-          );
+            });
+          }
         }
       }
     } else if (this.currentFolder) {
@@ -1840,38 +1841,38 @@ export class RssDashboardView extends ItemView {
         // detection. Keep the full article pool here so the empty state can
         // explain that items exist but none match the active view filter.
         for (const feed of this.settings.feeds) {
-          articles = articles.concat(
-            feed.items.map((item) => ({
+          for (const item of feed.items) {
+            articles.push({
               ...item,
               feedTitle: feed.title,
               feedUrl: feed.url,
-            })),
-          );
+            });
+          }
         }
       } else {
         const allFolders = this.getAllDescendantFolders(this.currentFolder);
         allFolders.push(this.currentFolder);
         for (const feed of this.settings.feeds) {
           if (feed.folder && allFolders.includes(feed.folder)) {
-            articles = articles.concat(
-              feed.items.map((item) => ({
+            for (const item of feed.items) {
+              articles.push({
                 ...item,
                 feedTitle: feed.title,
                 feedUrl: feed.url,
-              })),
-            );
+              });
+            }
           }
         }
       }
     } else {
       for (const feed of this.settings.feeds) {
-        articles = articles.concat(
-          feed.items.map((item) => ({
+        for (const item of feed.items) {
+          articles.push({
             ...item,
             feedTitle: feed.title,
             feedUrl: feed.url,
-          })),
-        );
+          });
+        }
       }
     }
 
@@ -4461,59 +4462,74 @@ export class RssDashboardView extends ItemView {
 
     if (this.currentFolder === "starred") {
       for (const feed of this.settings.feeds) {
-        articles = articles.concat(feed.items.filter((item) => item.starred));
+        for (const item of feed.items) {
+          if (item.starred) articles.push(item);
+        }
       }
     } else if (this.currentFolder === "unread") {
       for (const feed of this.settings.feeds) {
-        articles = articles.concat(feed.items.filter((item) => !item.read));
+        for (const item of feed.items) {
+          if (!item.read) articles.push(item);
+        }
       }
     } else if (this.currentFolder === "read") {
       for (const feed of this.settings.feeds) {
-        articles = articles.concat(feed.items.filter((item) => item.read));
+        for (const item of feed.items) {
+          if (item.read) articles.push(item);
+        }
       }
     } else if (this.currentFolder === "saved") {
       for (const feed of this.settings.feeds) {
-        articles = articles.concat(feed.items.filter((item) => item.saved));
+        for (const item of feed.items) {
+          if (item.saved) articles.push(item);
+        }
       }
     } else if (this.currentFolder === "videos") {
       for (const feed of this.settings.feeds) {
-        articles = articles.concat(
-          feed.items.filter((item) => item.mediaType === "video"),
-        );
+        for (const item of feed.items) {
+          if (item.mediaType === "video") articles.push(item);
+        }
       }
     } else if (this.currentFolder === "podcasts") {
       for (const feed of this.settings.feeds) {
-        articles = articles.concat(
-          feed.items.filter((item) => item.mediaType === "podcast"),
-        );
+        for (const item of feed.items) {
+          if (item.mediaType === "podcast") articles.push(item);
+        }
       }
     } else if (this.selectedTags.length > 0) {
       const mode = this.settings.sidebarTagFilterMode || "or";
       for (const feed of this.settings.feeds) {
-        articles = articles.concat(
-          feed.items.filter((item) => {
-            const itemTags = (item.tags ?? []).map((t) => t.name);
-            if (mode === "or") {
-              return this.selectedTags.some((tag) => itemTags.includes(tag));
-            } else if (mode === "and") {
-              return this.selectedTags.every((tag) => itemTags.includes(tag));
-            } else if (mode === "not") {
-              return !this.selectedTags.some((tag) => itemTags.includes(tag));
+        for (const item of feed.items) {
+          const itemTags = (item.tags ?? []).map((t) => t.name);
+          if (mode === "or") {
+            if (this.selectedTags.some((tag) => itemTags.includes(tag))) {
+              articles.push(item);
             }
-            return false;
-          }),
-        );
+          } else if (mode === "and") {
+            if (this.selectedTags.every((tag) => itemTags.includes(tag))) {
+              articles.push(item);
+            }
+          } else if (mode === "not") {
+            if (!this.selectedTags.some((tag) => itemTags.includes(tag))) {
+              articles.push(item);
+            }
+          }
+        }
       }
     } else if (this.currentFolder) {
       const allFolders = this.getAllDescendantFolders(this.currentFolder);
       for (const feed of this.settings.feeds) {
         if (feed.folder && allFolders.includes(feed.folder)) {
-          articles = articles.concat(feed.items);
+          for (const item of feed.items) {
+            articles.push(item);
+          }
         }
       }
     } else {
       for (const feed of this.settings.feeds) {
-        articles = articles.concat(feed.items);
+        for (const item of feed.items) {
+          articles.push(item);
+        }
       }
     }
 
@@ -4643,8 +4659,21 @@ export class RssDashboardView extends ItemView {
     await this.openArticleInConfiguredReaderLocation(article);
   }
 
-  private verifySavedArticles(): void {
+  private verifySavedArticles(force = false): void {
+    const now = Date.now();
+    if (
+      !force &&
+      now - this.lastSavedArticleVerificationTime <
+        RssDashboardView.SAVED_ARTICLE_VERIFY_INTERVAL_MS
+    ) {
+      return;
+    }
     const allArticles = this.getFilteredArticles();
+    if (!allArticles.some((article) => article.saved)) {
+      this.lastSavedArticleVerificationTime = now;
+      return;
+    }
+    this.lastSavedArticleVerificationTime = now;
     this.saver.verifyAllSavedArticles(allArticles);
   }
 
@@ -4693,11 +4722,7 @@ export class RssDashboardView extends ItemView {
   }
 
   private getAllArticles(): FeedItem[] {
-    let allArticles: FeedItem[] = [];
-    for (const feed of this.settings.feeds) {
-      allArticles = allArticles.concat(feed.items);
-    }
-    return allArticles;
+    return this.settings.feeds.flatMap((feed) => feed.items);
   }
 
   private handlePageChange(page: number): void {

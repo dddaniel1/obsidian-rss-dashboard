@@ -1,4 +1,4 @@
-﻿import { Notice } from "obsidian";
+import { Notice } from "obsidian";
 import type RssDashboardPlugin from "../../../main";
 import type { FeedItem, Folder, RssDashboardSettings } from "../../types/types";
 import { MediaService } from "../media-service";
@@ -36,10 +36,19 @@ export class DashboardSyncSource {
     if (!state) return;
     const names = new Map(state.folders.map((folder) => [folder.id, folder.name]));
     this.settings.folders = state.folders.map((folder): RemoteFolderView => ({ name: folder.name, subfolders: [], remoteId: folder.id }));
+    const articlesByFeed = new Map<string, Array<(typeof state.articles)[string]>>();
+    for (const article of Object.values(state.articles)) {
+      const feedArticles = articlesByFeed.get(article.feedId);
+      if (feedArticles) {
+        feedArticles.push(article);
+      } else {
+        articlesByFeed.set(article.feedId, [article]);
+      }
+    }
     this.settings.feeds = state.subscriptions.map((feed) => ({
       feedId: feed.id, title: feed.title, url: feed.url, folder: names.get(feed.folder) ?? "Uncategorized",
       lastUpdated: state.lastSuccess ?? 0, excludeFromRefresh: true, iconUrl: feed.iconUrl,
-      items: Object.values(state.articles).filter((article) => article.feedId === feed.id).map((article): FeedItem => ({
+      items: (articlesByFeed.get(feed.id) ?? []).map((article): FeedItem => ({
         ...article, guid: "freshrss:" + state.accountId + ":" + article.id,
         feedUrl: feed.url, feedTitle: feed.title, description: article.content,
         pubDate: new Date(article.published * 1000).toISOString(),

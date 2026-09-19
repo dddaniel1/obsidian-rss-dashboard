@@ -1,4 +1,4 @@
-﻿import type { ArticleUserState } from "../../types/types";
+import type { ArticleUserState } from "../../types/types";
 import type { SyncOperation } from "./sync-outbox";
 import { SyncError, type SyncProvider, type RemoteArticle, type RemoteFolder, type RemoteSubscription } from "./sync-provider";
 
@@ -36,7 +36,14 @@ export class SyncService {
   }
 
   snapshot(): SyncState {
-    const state = structuredClone(this.state);
+    const state: SyncState = {
+      ...this.state,
+      folders: this.state.folders.map((folder) => ({ ...folder })),
+      subscriptions: this.state.subscriptions.map((subscription) => ({ ...subscription })),
+      operations: this.state.operations.map((operation) => ({ ...operation })),
+      conflicts: this.state.conflicts ? this.state.conflicts.map((conflict) => ({ ...conflict })) : [],
+      articles: { ...this.state.articles },
+    };
     for (const op of state.operations) {
       if (op.kind === "edit-feed") {
         const feed = state.subscriptions.find((item) => item.id === op.feedId);
@@ -55,7 +62,7 @@ export class SyncService {
         for (const feed of state.subscriptions) if (feed.folder === op.folder) feed.folder = "";
       } else if (op.kind === "article-state") {
         const article = state.articles[op.articleId];
-        if (article) article[op.field] = op.value;
+        if (article) state.articles[op.articleId] = { ...article, [op.field]: op.value };
       }
     }
     return state;

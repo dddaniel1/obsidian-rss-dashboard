@@ -3535,10 +3535,6 @@ export default class RssDashboardPlugin extends Plugin {
   }
 
   private getAllArticles(): FeedItem[] {
-    let allArticles: FeedItem[] = [];
-    for (const feed of this.settings.feeds) {
-      allArticles = allArticles.concat(feed.items);
-    }
-    return allArticles;
+    return this.settings.feeds.flatMap((feed) => feed.items);
   }
 }
