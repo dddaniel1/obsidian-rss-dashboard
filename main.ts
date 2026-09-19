@@ -72,6 +72,10 @@ import { globalFetchSemaphore } from "./src/services/feed-parser/fetch-semaphore
 import { OpmlManager } from "./src/services/opml-manager";
 import { MediaService } from "./src/services/media-service";
 import { ImageCacheService } from "./src/services/image-cache-service";
+import {
+  ImageRecoveryService,
+  type ImageRecoveryLease,
+} from "./src/services/image-recovery-service";
 import { resolveArticlePreviewImage } from "./src/components/article-list/utils/article-preview-utils";
 import { PodcastAudioService } from "./src/services/podcast-audio-service";
 import { PodcastMiniPlayer } from "./src/components/podcast-mini-player";
@@ -359,6 +363,7 @@ export default class RssDashboardPlugin extends Plugin {
   private static readonly FEED_REFRESH_RENDER_THROTTLE_MS = 250;
   private readonly feedStorageRepository: FeedStorageRepository;
   private imageCacheService: ImageCacheService | null = null;
+  private readonly imageRecoveryService = new ImageRecoveryService();
   private imageCacheQueue: string[] = [];
   private readonly queuedImageCacheUrls = new Set<string>();
   private readonly imageCacheChangeListeners = new Set<() => void>();
@@ -469,6 +474,13 @@ export default class RssDashboardPlugin extends Plugin {
   public resolveCachedImageUrl(remoteUrl: string): string | null {
     if (!this.settings.display.allowImageCaching) return null;
     return this.imageCacheService?.resolveCachedUrl(remoteUrl) ?? null;
+  }
+
+  public acquireRecoveredImage(
+    remoteUrl: string,
+    articleUrl: string,
+  ): Promise<ImageRecoveryLease | null> {
+    return this.imageRecoveryService.acquire(remoteUrl, articleUrl);
   }
 
   public getImageCacheSizeBytes(): number {
@@ -1043,6 +1055,8 @@ export default class RssDashboardPlugin extends Plugin {
                   item,
                 );
               },
+              acquireRecoveredImage: (remoteUrl, articleUrl) =>
+                this.acquireRecoveredImage(remoteUrl, articleUrl),
             },
           ),
       );
@@ -3555,6 +3569,7 @@ export default class RssDashboardPlugin extends Plugin {
   }
 
   onunload() {
+    this.imageRecoveryService.destroy();
     this.podcastMiniPlayer?.destroy();
     this.podcastMiniPlayer = null;
     this.podcastAudioService?.destroy();

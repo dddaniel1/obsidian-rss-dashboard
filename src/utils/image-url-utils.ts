@@ -1,3 +1,5 @@
+import { resolveAbsoluteHttpUrl, resolveObsidianAppUrl } from "./url-utils";
+
 export function optimizeImageUrl(url: string, maxWidth = 600): string {
   if (!url) return url;
 
@@ -123,4 +125,103 @@ export function sanitizeImageUrl(raw: unknown): string {
   if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://"))
     return "";
   return trimmed;
+}
+
+/** Retries a failed lazy-loaded image with the remote URL retained by the feed. */
+export function retryLazyImageSource(image: HTMLImageElement): boolean {
+  if (image.dataset.rssLazySourceAttempted === "true") return false;
+  image.dataset.rssLazySourceAttempted = "true";
+
+  const currentSource = image.getAttribute("src")?.trim() ?? "";
+  const candidate = [
+    image.getAttribute("data-src"),
+    image.getAttribute("data-original"),
+  ]
+    .map((value) => sanitizeImageUrl(value))
+    .find((value) => value && value !== currentSource);
+  if (!candidate) return false;
+
+  image.closest("picture")?.querySelectorAll("source").forEach((source) =>
+    source.remove(),
+  );
+  image.removeAttribute("srcset");
+  image.removeAttribute("sizes");
+  image.setAttribute("src", candidate);
+  return true;
+}
+
+/** Retries a remote image while allowing the app origin to be sent as Referer. */
+export function retryImageWithOriginReferrer(image: HTMLImageElement): boolean {
+  if (image.dataset.rssOriginReferrerAttempted === "true") return false;
+  const source = image.currentSrc || image.getAttribute("src") || "";
+  if (!/^https?:\/\//i.test(source)) return false;
+
+  image.dataset.rssOriginReferrerAttempted = "true";
+  image.closest("picture")?.querySelectorAll("source").forEach((sourceEl) =>
+    sourceEl.remove(),
+  );
+  image.removeAttribute("srcset");
+  image.removeAttribute("sizes");
+  image.setAttribute("referrerpolicy", "origin");
+  image.removeAttribute("src");
+  image.setAttribute("src", source);
+  return true;
+}
+
+/** Chooses a trustworthy HTTP base for resolving relative article image URLs. */
+export function resolveArticleImageBaseUrl(
+  articleUrl: string | null | undefined,
+  feedUrl: string | null | undefined,
+): string {
+  for (const candidate of [articleUrl, feedUrl]) {
+    if (!candidate) continue;
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+        return parsed.toString();
+      }
+    } catch {
+      // Continue to the feed URL.
+    }
+  }
+  return "";
+}
+
+/**
+ * Resolves every candidate URL in a srcset attribute against the article base
+ * URL while preserving descriptors. Absolute and data URI candidates are kept
+ * as-is; candidates that cannot be resolved safely (for example URLs that
+ * contain commas) are returned unchanged so the HTML sanitizer can decide
+ * whether to keep them.
+ */
+export function resolveSrcsetUrls(
+  srcset: string | null | undefined,
+  baseUrl: string,
+): string {
+  const trimmed = srcset?.trim() ?? "";
+  if (!trimmed || !baseUrl) return trimmed;
+
+  // Candidate grammar: URL token, optional width/density descriptor, optional
+  // comma. A greedy URL token keeps commas inside data URIs and URLs intact.
+  const candidatePattern = /(\S+)(\s+[\d.]+[whx])?(\s*(?:,|$))/g;
+  const resolvedCandidates: string[] = [];
+
+  for (const match of trimmed.matchAll(candidatePattern)) {
+    const url = match[1];
+    const descriptor = (match[2] ?? "").trim();
+
+    let resolvedUrl = url;
+    if (!url.toLowerCase().startsWith("data:") && !url.includes(",")) {
+      resolvedUrl =
+        resolveAbsoluteHttpUrl(url, baseUrl) ??
+        resolveObsidianAppUrl(url, baseUrl) ??
+        url;
+    }
+
+    resolvedCandidates.push(
+      descriptor ? `${resolvedUrl} ${descriptor}` : resolvedUrl,
+    );
+  }
+
+  return resolvedCandidates.join(", ");
 }

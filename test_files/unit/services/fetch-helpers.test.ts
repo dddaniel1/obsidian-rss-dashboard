@@ -19,6 +19,8 @@ import {
   isBlockedResponse,
   isRestrictedSignal,
   parseArticleContent,
+  convertRelativeUrlsInContent,
+  injectBaseUri,
   fetchWithProxyFallback,
   fetchWithProxyFallbackDetailed,
 } from "../../../src/utils/fetch-helpers";
@@ -134,6 +136,86 @@ describe("isRestrictedSignal", () => {
     expect(isRestrictedSignal("socket timeout while fetching article")).toBe(
       false,
     );
+  });
+});
+
+// ── injectBaseUri — unit tests ───────────────────────────────────────────────
+
+describe("injectBaseUri", () => {
+  function parseDocWithWindow(html: string): Document {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    // Obsidian exposes win on Document at runtime; jsdom documents need a
+    // stub so the production code path (doc.win.createEl) runs as-is.
+    const winStub = {
+      createEl: (tag: string) => document.createElement(tag),
+    } as unknown as Window;
+    Object.defineProperty(doc, "win", { value: winStub });
+    return doc;
+  }
+
+  it("points the document base URI at the article URL", () => {
+    const doc = parseDocWithWindow(
+      "<html><head></head><body><p>x</p></body></html>",
+    );
+    injectBaseUri(doc, "https://addyosmani.com/blog/software-factories/");
+    expect(doc.baseURI).toBe(
+      "https://addyosmani.com/blog/software-factories/",
+    );
+  });
+
+  it("leaves the document untouched for non-http base URLs", () => {
+    const doc = parseDocWithWindow(
+      "<html><head></head><body></body></html>",
+    );
+    injectBaseUri(doc, "app://obsidian.md/");
+    expect(doc.querySelector("base")).toBeNull();
+  });
+
+  it("does not override an existing base element", () => {
+    const doc = parseDocWithWindow(
+      '<html><head><base href="https://original.example/"></head><body></body></html>',
+    );
+    injectBaseUri(doc, "https://addyosmani.com/post/");
+    expect(doc.querySelectorAll("base")).toHaveLength(1);
+    expect(doc.baseURI).toBe("https://original.example/");
+  });
+});
+
+// ── convertRelativeUrlsInContent — unit tests ────────────────────────────────
+
+describe("convertRelativeUrlsInContent", () => {
+  const base = "https://addyosmani.com/blog/software-factories/";
+
+  it("repairs image and link URLs that were resolved against Obsidian's app origin", () => {
+    const content =
+      "<p>Long article body. </p>".repeat(30) +
+      '<img src="app://obsidian.md/assets/images/software-factories/loop-harness-factory.svg" alt="diagram">' +
+      '<a href="app://obsidian.md/blog/software-factories/">Source</a>';
+
+    const result = convertRelativeUrlsInContent(content, base);
+
+    expect(result).toContain(
+      'src="https://addyosmani.com/assets/images/software-factories/loop-harness-factory.svg"',
+    );
+    expect(result).toContain('href="https://addyosmani.com/blog/software-factories/"');
+    expect(result).not.toContain("app://obsidian.md");
+  });
+
+  it("resolves relative srcset candidates on img and source elements", () => {
+    const content =
+      "<p>Long article body. </p>".repeat(30) +
+      '<picture><source srcset="/img/a.svg 480w, /img/b.svg 960w" type="image/svg+xml"><img src="/img/a.svg" srcset="/img/a.svg 2x" data-srcset="/img/c.svg 1x"></picture>';
+
+    const result = convertRelativeUrlsInContent(content, base);
+
+    expect(result).toContain(
+      'srcset="https://addyosmani.com/img/a.svg 480w, https://addyosmani.com/img/b.svg 960w"',
+    );
+    expect(result).toContain('srcset="https://addyosmani.com/img/a.svg 2x"');
+    expect(result).toContain(
+      'data-srcset="https://addyosmani.com/img/c.svg 1x"',
+    );
+    expect(result).not.toContain('src="/img/');
   });
 });
 

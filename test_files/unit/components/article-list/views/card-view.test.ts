@@ -269,6 +269,40 @@ describe("card-view", () => {
     ).toBe("Article description text");
   });
 
+  it("keeps a failed cover when source-aware recovery succeeds", async () => {
+    const recoverImage = vi.fn(
+      async (image: HTMLImageElement, remoteUrl: string, articleUrl: string) => {
+        image.setAttribute("src", "blob:recovered-cover");
+        return remoteUrl.endsWith("broken.jpg") && articleUrl.includes("example.com");
+      },
+    );
+    renderCardView(
+      container,
+      [makeArticle({ coverImage: "https://cdn.example.com/broken.jpg" })],
+      {
+        ...baseViewContext(),
+        recoverImage,
+        showCardToolbar: true,
+      },
+      baseViewDeps(),
+    );
+
+    const image = container.querySelector(
+      "img.rss-dashboard-cover-image",
+    ) as HTMLImageElement;
+    image.dispatchEvent(new Event("error"));
+
+    await vi.waitFor(() => {
+      expect(image.getAttribute("src")).toBe("blob:recovered-cover");
+    });
+    expect(recoverImage).toHaveBeenCalledWith(
+      image,
+      "https://cdn.example.com/broken.jpg",
+      "https://example.com/article",
+    );
+    expect(container.querySelector(".rss-dashboard-cover-summary-only")).toBeNull();
+  });
+
   it("does not render a summary fallback after an image error when summaries are disabled", () => {
     renderCardView(
       container,

@@ -65,12 +65,14 @@ function makeItem(overrides: Partial<FeedItem> = {}): FeedItem {
 describe("ArticleRenderer – summary de-duplication", () => {
   let renderer: ArticleRenderer;
   let container: HTMLElement;
+  let acquireRecoveredImage: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     const mockApp = {
       workspace: { getLeavesOfType: vi.fn().mockReturnValue([]) },
       vault: { getAbstractFileByPath: vi.fn() },
     } as unknown as obsidian.App;
+    acquireRecoveredImage = vi.fn().mockResolvedValue(null);
 
     renderer = new ArticleRenderer({
       app: mockApp,
@@ -78,6 +80,7 @@ describe("ArticleRenderer – summary de-duplication", () => {
       settings: { ...DEFAULT_SETTINGS } as RssDashboardSettings,
       onArticleSave: vi.fn(),
       onArticleUpdate: vi.fn(),
+      acquireRecoveredImage,
     });
 
     // Full content is fetched only through the explicit loadFullArticle()
@@ -112,6 +115,54 @@ describe("ArticleRenderer – summary de-duplication", () => {
     });
     expect(container.querySelector(".rss-reader-hero-slot img")).toBeNull();
     expect(body?.querySelector("img.latex")).toBeNull();
+  });
+
+  it("replaces a failed article image with a recovered object URL and releases it on destroy", async () => {
+    const release = vi.fn();
+    acquireRecoveredImage.mockResolvedValue({
+      url: "blob:recovered-article-image",
+      release,
+    });
+    const item = makeItem({
+      coverImage: "https://example.com/cover.jpg",
+      content:
+        '<p>Body image</p><img src="https://cdn.example.com/protected.png" alt="Protected" /><p>Substantial body text after the protected image keeps it in the article content.</p>',
+    });
+
+    await renderer.render(container, item);
+    const image = container.querySelector<HTMLImageElement>("img[alt='Protected']");
+    image?.dispatchEvent(new Event("error"));
+    expect(image?.getAttribute("referrerpolicy")).toBe("origin");
+    image?.dispatchEvent(new Event("error"));
+
+    await vi.waitFor(() => {
+      expect(image?.getAttribute("src")).toBe("blob:recovered-article-image");
+    });
+    expect(acquireRecoveredImage).toHaveBeenCalledWith(
+      "https://cdn.example.com/protected.png",
+      "https://example.com/article",
+    );
+
+    renderer.destroy();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("resolves relative article images against the feed URL when the item link is unusable", async () => {
+    const item = makeItem({
+      link: "app://obsidian.md/article",
+      feedUrl: "https://example.com/blog/feed.xml",
+      coverImage: "https://example.com/cover.jpg",
+      content:
+        '<p>Body image</p><img src="/blog/agent-loop/call-stack.png" alt="Call stack" /><p>Substantial body text follows the relative image.</p>',
+    });
+
+    await renderer.render(container, item);
+
+    expect(
+      container
+        .querySelector<HTMLImageElement>("img[alt='Call stack']")
+        ?.getAttribute("src"),
+    ).toBe("https://example.com/blog/agent-loop/call-stack.png");
   });
 
   it("preserves a leading formula block during full-article media cleanup", async () => {

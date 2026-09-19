@@ -4,7 +4,12 @@ import {
   robustFetchDetailed,
   ensureUtf8Meta,
 } from "./platform-utils";
-import { resolveAbsoluteHttpUrl } from "./url-utils";
+import {
+  isOpenableHttpUrl,
+  resolveAbsoluteHttpUrl,
+  resolveObsidianAppUrl,
+} from "./url-utils";
+import { resolveSrcsetUrls } from "./image-url-utils";
 
 /** Markers that indicate the page is a WAF/bot-challenge block rather than real content. */
 const BLOCKED_MARKERS = [
@@ -87,8 +92,26 @@ export async function fetchAndParse(
 
   const withMeta = ensureUtf8Meta(html);
   const doc = new DOMParser().parseFromString(withMeta, "text/html");
+  injectBaseUri(doc, url);
   const article = new Readability(doc).parse();
   return article?.content ?? "";
+}
+
+/**
+ * Points the parsed document's base URI at the article URL so libraries like
+ * Readability resolve relative image/link URLs against the article site
+ * instead of Obsidian's own `app://obsidian.md` origin. Without this, DOM
+ * parsing inside Obsidian rewrites root-relative URLs (for example
+ * `/assets/images/figure.svg`) into `app://obsidian.md/assets/images/...`,
+ * which then fails to load and cannot be repaired downstream.
+ */
+export function injectBaseUri(doc: Document, baseUrl: string): void {
+  if (!isOpenableHttpUrl(baseUrl)) return;
+  if (doc.querySelector("base")) return;
+
+  const base = doc.win.createEl("base");
+  base.setAttribute("href", baseUrl);
+  doc.head?.prepend(base);
 }
 
 export function convertRelativeUrlsInContent(
@@ -98,27 +121,42 @@ export function convertRelativeUrlsInContent(
   if (!content || !baseUrl) return content;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
+    const resolveSingleUrl = (value: string): string =>
+      resolveAbsoluteHttpUrl(value, baseUrl) ??
+      resolveObsidianAppUrl(value, baseUrl) ??
+      value;
+
     doc.querySelectorAll("img").forEach((img) => {
-      const src = img.getAttribute("src");
-      if (src) {
-        const abs = resolveAbsoluteHttpUrl(src, baseUrl);
-        if (abs) img.setAttribute("src", abs);
+      for (const attr of ["src", "data-src", "data-original"] as const) {
+        const value = img.getAttribute(attr);
+        if (!value) continue;
+        const abs = resolveSingleUrl(value);
+        if (abs !== value) img.setAttribute(attr, abs);
       }
-      ["data-src", "data-original"].forEach((attr) => {
-        const val = img.getAttribute(attr);
-        if (val) {
-          const abs = resolveAbsoluteHttpUrl(val, baseUrl);
-          if (abs) img.setAttribute(attr, abs);
-        }
-      });
+      for (const attr of ["srcset", "data-srcset"] as const) {
+        const value = img.getAttribute(attr);
+        if (!value) continue;
+        const resolved = resolveSrcsetUrls(value, baseUrl);
+        if (resolved !== value) img.setAttribute(attr, resolved);
+      }
     });
+
+    doc.querySelectorAll("source").forEach((source) => {
+      for (const attr of ["srcset", "data-srcset"] as const) {
+        const value = source.getAttribute(attr);
+        if (!value) continue;
+        const resolved = resolveSrcsetUrls(value, baseUrl);
+        if (resolved !== value) source.setAttribute(attr, resolved);
+      }
+    });
+
     doc.querySelectorAll("a").forEach((a) => {
       const href = a.getAttribute("href");
-      if (href) {
-        const abs = resolveAbsoluteHttpUrl(href, baseUrl);
-        if (abs) a.setAttribute("href", abs);
-      }
+      if (!href) return;
+      const abs = resolveSingleUrl(href);
+      if (abs !== href) a.setAttribute("href", abs);
     });
+
     return new XMLSerializer().serializeToString(doc.body);
   } catch {
     return content;
@@ -129,6 +167,7 @@ export function parseArticleContent(html: string, baseUrl?: string): string {
   if (!html) return "";
   const withMeta = ensureUtf8Meta(html);
   const doc = new DOMParser().parseFromString(withMeta, "text/html");
+  if (baseUrl) injectBaseUri(doc, baseUrl);
   let content = "";
   try {
     const docClone = doc.cloneNode(true) as Document;

@@ -73,6 +73,29 @@ function renderArticleCard(
         heroImage.dataset.rssCacheRemoteFallback = "true";
         heroImage.setAttribute("src", coverImgSrc);
         heroBlur.setAttribute("style", `background-image: url('${coverImgSrc}')`);
+        return;
+      }
+
+      if (
+        coverImgSrc &&
+        ctx.recoverImage &&
+        heroImage.dataset.rssRemoteRecoverAttempted !== "true"
+      ) {
+        heroImage.dataset.rssRemoteRecoverAttempted = "true";
+        void ctx
+          .recoverImage(
+            heroImage,
+            coverImgSrc,
+            article.link || article.feedUrl,
+          )
+          .then((recovered) => {
+            if (recovered) {
+              heroBlur.setAttribute(
+                "style",
+                `background-image: url('${heroImage.getAttribute("src") || ""}')`,
+              );
+            }
+          });
       }
     };
   }

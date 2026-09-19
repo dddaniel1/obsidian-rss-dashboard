@@ -1,5 +1,6 @@
 import type { FeedItem, RssDashboardSettings } from "../../../types/types";
 import type { HighlightService } from "../../../services/highlight-service";
+import type { ImageRecoveryLease } from "../../../services/image-recovery-service";
 
 export interface ViewCallbacks {
   onArticleClick: (article: FeedItem) => void;
@@ -32,6 +33,16 @@ export interface BaseViewContext {
     collapsedFeedSections?: string[];
   };
   resolveCachedImageUrl?: (remoteUrl: string) => string | null;
+  recoverImage?: (
+    image: HTMLImageElement,
+    remoteUrl: string,
+    articleUrl: string,
+  ) => Promise<boolean>;
   highlightService: HighlightService | null;
   callbacks: ViewCallbacks;
 }
+
+export type AcquireRecoveredImage = (
+  remoteUrl: string,
+  articleUrl: string,
+) => Promise<ImageRecoveryLease | null>;

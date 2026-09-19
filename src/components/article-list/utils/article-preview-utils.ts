@@ -25,35 +25,33 @@ export function extractFirstImageSrc(html: string): string | null {
   // Scan tags so rejected formula/tracking images do not hide a later photo.
   const imageTags = html.match(/<img\b[^>]*>/gi) ?? [];
   for (const imageTag of imageTags) {
-    const srcMatch = imageTag.match(/\bsrc=["']([^"']+)["']/i);
-    if (!srcMatch) continue;
-
-    const src = decodeHtmlEntities(srcMatch[1]).trim();
     const className = imageTag.match(/\bclass=["']([^"']*)["']/i)?.[1];
+    for (const attribute of ["src", "data-src", "data-original"]) {
+      const srcMatch = imageTag.match(
+        new RegExp(`\\b${attribute}=["']([^"']+)["']`, "i"),
+      );
+      if (!srcMatch) continue;
 
-    // Reject literal placeholder values that some feeds (e.g. NPR CDATA) emit.
-    if (
-      !src ||
-      src === "undefined" ||
-      src === "null" ||
-      src === "#" ||
-      src === "about:blank"
-    ) {
-      continue;
+      const src = decodeHtmlEntities(srcMatch[1]).trim();
+      if (
+        !src ||
+        src === "undefined" ||
+        src === "null" ||
+        src === "#" ||
+        src === "about:blank"
+      ) {
+        continue;
+      }
+      if (
+        !src.startsWith("http://") &&
+        !src.startsWith("https://") &&
+        !src.startsWith("//")
+      ) {
+        continue;
+      }
+      if (isLatexFormulaImage(src, className) || isTrackingPixel(src)) continue;
+      return src;
     }
-
-    // Only accept HTTP/HTTPS or protocol-relative URLs.
-    if (
-      !src.startsWith("http://") &&
-      !src.startsWith("https://") &&
-      !src.startsWith("//")
-    ) {
-      continue;
-    }
-
-    if (isLatexFormulaImage(src, className) || isTrackingPixel(src)) continue;
-
-    return src;
   }
 
   return null;

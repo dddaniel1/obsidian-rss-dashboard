@@ -8,6 +8,11 @@ describe('article-preview-utils', () => {
       expect(extractFirstImageSrc(html)).toBe('https://example.com/image.png');
     });
 
+    it('uses a retained lazy-load URL when src is only a placeholder', () => {
+      const html = '<img src="data:image/gif;base64,placeholder" data-src="https://cdn.example.com/article.png" />';
+      expect(extractFirstImageSrc(html)).toBe('https://cdn.example.com/article.png');
+    });
+
     it('returns null if no image is found', () => {
       const html = '<div><p>No image here</p></div>';
       expect(extractFirstImageSrc(html)).toBeNull();

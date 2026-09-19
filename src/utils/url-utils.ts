@@ -111,6 +111,36 @@ export function resolveAbsoluteHttpUrl(
   }
 }
 
+/**
+ * Repairs a URL that was already resolved against Obsidian's own app origin
+ * (for example by DOM parsing libraries that used the Obsidian document's
+ * `app://obsidian.md` base URI). Treats such URLs as relative paths and
+ * resolves them against the article base URL. Returns null for anything that
+ * is not an Obsidian app URL or cannot become an http(s) URL.
+ */
+export function resolveObsidianAppUrl(
+  maybeMangledUrl: string | undefined | null,
+  baseUrl: string,
+): string | null {
+  const raw = (maybeMangledUrl ?? "").trim();
+  if (!raw || !baseUrl) return null;
+
+  try {
+    const parsed = new URL(raw);
+    if (
+      parsed.protocol !== "app:" ||
+      parsed.hostname.toLowerCase() !== "obsidian.md"
+    ) {
+      return null;
+    }
+
+    const relative = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return resolveAbsoluteHttpUrl(relative || "/", baseUrl);
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeUrlForComparison(rawUrl: string): string | null {
   try {
     const parsedUrl = new URL(rawUrl);

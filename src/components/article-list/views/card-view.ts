@@ -110,16 +110,9 @@ export function renderCardView(
           referrerpolicy: "no-referrer",
         },
       });
-      coverImg.onerror = () => {
-        if (
-          displayedCoverImgSrc !== coverImgSrc &&
-          coverImgSrc &&
-          coverImg.dataset.rssCacheRemoteFallback !== "true"
-        ) {
-          coverImg.dataset.rssCacheRemoteFallback = "true";
-          coverImg.setAttribute("src", coverImgSrc);
-          return;
-        }
+      const handleFinalImageFailure = (): void => {
+        coverImg.onerror = null;
+        coverImg.remove();
 
         previewRegion.empty();
 
@@ -144,6 +137,37 @@ export function renderCardView(
         }
 
         deps.scheduleCardTagLayout?.(card);
+      };
+      coverImg.onerror = () => {
+        if (
+          displayedCoverImgSrc !== coverImgSrc &&
+          coverImgSrc &&
+          coverImg.dataset.rssCacheRemoteFallback !== "true"
+        ) {
+          coverImg.dataset.rssCacheRemoteFallback = "true";
+          coverImg.setAttribute("src", coverImgSrc);
+          return;
+        }
+
+        if (
+          coverImgSrc &&
+          ctx.recoverImage &&
+          coverImg.dataset.rssRemoteRecoverAttempted !== "true"
+        ) {
+          coverImg.dataset.rssRemoteRecoverAttempted = "true";
+          void ctx
+            .recoverImage(
+              coverImg,
+              coverImgSrc,
+              article.link || article.feedUrl,
+            )
+            .then((recovered) => {
+              if (!recovered) handleFinalImageFailure();
+            });
+          return;
+        }
+
+        handleFinalImageFailure();
       };
 
       if (previewSummaryText) {

@@ -58,6 +58,10 @@ import {
   containsLatexFormulaImage,
   findFirstNonFormulaImage,
   firstNonFormulaImageUrl,
+  retryImageWithOriginReferrer,
+  retryLazyImageSource,
+  resolveArticleImageBaseUrl,
+  sanitizeImageUrl,
 } from "../utils/image-url-utils";
 import { PodcastPlayer } from "./podcast-player";
 import { VideoPlayer } from "./video-player";
@@ -70,6 +74,7 @@ import {
   TemplateNameModal,
 } from "../settings/modals/settings-modals";
 import { TranslationService } from "../services/translation-service";
+import type { ImageRecoveryLease } from "../services/image-recovery-service";
 
 const VIDEO_ARTICLE_BANNER =
   "This item appears to be a video. Open the source page to watch.";
@@ -131,6 +136,11 @@ export class ReaderView extends ItemView {
   private articleDisplayGeneration = 0;
   private fullArticleLoadingNotice: Notice | null = null;
   private lastRestrictedNoticeGuid: string | null = null;
+  private readonly recoveredImageLeases = new Set<ImageRecoveryLease>();
+  private readonly acquireRecoveredImage?: (
+    remoteUrl: string,
+    articleUrl: string,
+  ) => Promise<ImageRecoveryLease | null>;
 
   private readerFormatPortal: { close: (flushSave: boolean) => void } | null =
     null;
@@ -216,6 +226,10 @@ export class ReaderView extends ItemView {
         flush?: boolean,
       ) => void;
       podcastAudioService?: PodcastAudioService;
+      acquireRecoveredImage?: (
+        remoteUrl: string,
+        articleUrl: string,
+      ) => Promise<ImageRecoveryLease | null>;
     },
   ) {
     super(leaf);
@@ -225,6 +239,7 @@ export class ReaderView extends ItemView {
     this.onArticleUpdate = onArticleUpdate;
     this.onPlaybackProgress = options?.onPlaybackProgress;
     this.podcastAudioService = options?.podcastAudioService;
+    this.acquireRecoveredImage = options?.acquireRecoveredImage;
     addMathTurndownRule(this.turndownService);
 
     this.scope = new Scope(this.app.scope);
@@ -1199,6 +1214,7 @@ export class ReaderView extends ItemView {
     this.translationLoadingNotice?.hide();
     this.translationLoadingNotice = null;
     this.closeTagsDropdown();
+    this.releaseRecoveredImages();
 
     if (this.readerFormatPortal) {
       this.readerFormatPortal.close(true);
@@ -1927,6 +1943,7 @@ export class ReaderView extends ItemView {
   }
 
   private renderArticle(item: FeedItem, fullContent?: string): void {
+    this.releaseRecoveredImages();
     const headerContainer = this.readingContainer.createDiv({
       cls: "rss-reader-article-header",
     });
@@ -1992,6 +2009,7 @@ export class ReaderView extends ItemView {
     const hasMeaningfulDescription =
       this.hasMeaningfulFeedDescription(descriptionHtml);
     const mainHtml = (fullContent || item.content || "").trim();
+    const imageBaseUrl = resolveArticleImageBaseUrl(item.link, item.feedUrl);
     let fallbackHeroUrl = firstNonFormulaImageUrl([
       item.coverImage,
       item.image,
@@ -2029,7 +2047,7 @@ export class ReaderView extends ItemView {
         this.populateArticleHtml(
           descriptionBody,
           descriptionHtml,
-          item.link,
+          imageBaseUrl,
           fallbackHeroUrl,
           displayTitle,
           heroSlot,
@@ -2057,7 +2075,7 @@ export class ReaderView extends ItemView {
       this.populateArticleHtml(
         contentContainer,
         contentToRender,
-        item.link,
+        imageBaseUrl,
         fallbackHeroUrl,
         displayTitle,
         heroSlot,
@@ -2387,12 +2405,14 @@ export class ReaderView extends ItemView {
         });
 
         doc.querySelectorAll("img").forEach((el) => {
-          const src = el.getAttribute("src");
-          if (!src) return;
-          try {
-            el.setAttribute("src", new URL(src, base).toString());
-          } catch {
-            /* ignore */
+          for (const attribute of ["src", "data-src", "data-original"]) {
+            const value = el.getAttribute(attribute);
+            if (!value) continue;
+            try {
+              el.setAttribute(attribute, new URL(value, base).toString());
+            } catch {
+              /* ignore */
+            }
           }
         });
       }
@@ -2434,9 +2454,13 @@ export class ReaderView extends ItemView {
         const firstImg = findFirstNonFormulaImage(doc.body);
 
         if (heroSlot.childElementCount === 0) {
-          let heroUrl = normalizeSubstackImageUrl(fallbackHeroUrl);
-          const firstImgSrc = normalizeSubstackImageUrl(
-            firstImg?.getAttribute("src")?.trim() || "",
+          let heroUrl = sanitizeImageUrl(
+            normalizeSubstackImageUrl(fallbackHeroUrl),
+          );
+          const firstImgSrc = sanitizeImageUrl(
+            normalizeSubstackImageUrl(
+              firstImg?.getAttribute("src")?.trim() || "",
+            ),
           );
           if (!heroUrl && firstImgSrc) {
             heroUrl = firstImgSrc;
@@ -2538,6 +2562,14 @@ export class ReaderView extends ItemView {
           return;
         }
 
+        if (retryLazyImageSource(img)) return;
+        if (retryImageWithOriginReferrer(img)) return;
+
+        if (img.dataset.rssRemoteRecoverAttempted !== "true") {
+          void this.recoverFailedRemoteImage(img, baseUrl);
+          return;
+        }
+
         console.error(
           `[RSS Dashboard] ReaderView img load failed src=${img.getAttribute("src") || ""} currentSrc=${img.currentSrc || ""} srcset=${img.getAttribute("srcset") || ""}`,
         );
@@ -2552,6 +2584,49 @@ export class ReaderView extends ItemView {
       app: this.app,
       component: this,
     });
+  }
+
+  private async recoverFailedRemoteImage(
+    img: HTMLImageElement,
+    articleUrl: string,
+  ): Promise<void> {
+    const remoteUrl = img.currentSrc || img.getAttribute("src") || "";
+    if (!this.acquireRecoveredImage || !/^https?:\/\//i.test(remoteUrl)) {
+      this.logImageRecoveryFailure(img);
+      return;
+    }
+
+    img.dataset.rssRemoteRecoverAttempted = "true";
+    const generation = this.articleDisplayGeneration;
+    const lease = await this.acquireRecoveredImage(remoteUrl, articleUrl);
+    if (
+      !lease ||
+      generation !== this.articleDisplayGeneration ||
+      !img.ownerDocument.contains(img)
+    ) {
+      lease?.release();
+      if (!lease) this.logImageRecoveryFailure(img);
+      return;
+    }
+
+    img.closest("picture")?.querySelectorAll("source").forEach((source) =>
+      source.remove(),
+    );
+    img.removeAttribute("srcset");
+    img.removeAttribute("sizes");
+    img.setAttribute("src", lease.url);
+    this.recoveredImageLeases.add(lease);
+  }
+
+  private logImageRecoveryFailure(img: HTMLImageElement): void {
+    console.error(
+      `[RSS Dashboard] ReaderView img load failed src=${img.getAttribute("src") || ""} currentSrc=${img.currentSrc || ""} srcset=${img.getAttribute("srcset") || ""}`,
+    );
+  }
+
+  private releaseRecoveredImages(): void {
+    for (const lease of this.recoveredImageLeases) lease.release();
+    this.recoveredImageLeases.clear();
   }
 
   private recoverFailedSubstackImageElement(img: HTMLImageElement): boolean {

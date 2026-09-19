@@ -800,6 +800,8 @@ export class RssDashboardView extends ItemView {
         this.updateInlineFullTextButton(isFullArticle, isLoading);
       },
       podcastAudioService: this.plugin.podcastAudioService,
+      acquireRecoveredImage: (remoteUrl, articleUrl) =>
+        this.plugin.acquireRecoveredImage(remoteUrl, articleUrl),
     });
 
     this.registerEvent(
@@ -1202,6 +1204,8 @@ export class RssDashboardView extends ItemView {
           },
           onResolveCachedImageUrl: (remoteUrl) =>
             this.plugin.resolveCachedImageUrl(remoteUrl),
+          onAcquireRecoveredImage: (remoteUrl, articleUrl) =>
+            this.plugin.acquireRecoveredImage(remoteUrl, articleUrl),
           onMarkAllAsRead: () => {
             this.actionMarkAllAsRead();
           },

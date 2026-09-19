@@ -1,6 +1,7 @@
 import { Modal, App, setIcon, Setting } from "obsidian";
 import { FeedMetadata } from "../types/discover-types";
 import { fetchFeedXml } from "../services/feed-parser";
+import { resolveAbsoluteHttpUrl } from "../utils/url-utils";
 
 interface PreviewArticle {
     title: string;
@@ -135,21 +136,25 @@ export class FeedPreviewModal extends Modal {
                     const content =
                         item.querySelector(":scope > content\\:encoded")?.textContent || description;
                     const imgMatch = content.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i);
-                    if (imgMatch) {
-                        image = imgMatch[1];
+                   if (imgMatch) {
+                        image = resolveAbsoluteHttpUrl(imgMatch[1], this.feed.url) || "";
                     } else {
                         
                         const mediaContent = item.querySelector(":scope > media\\:content");
                         if (mediaContent) {
                             const mediaUrl = mediaContent.getAttribute('url');
-                            if (mediaUrl) {
-                                image = mediaUrl;
+                           if (mediaUrl) {
+                                image = resolveAbsoluteHttpUrl(mediaUrl, this.feed.url) || "";
                             }
                         } else {
                             const enclosure = item.querySelector(':scope > enclosure[type^="image"]');
-                            if (enclosure) {
-                                image = enclosure.getAttribute('url') || '';
-                            }
+                           if (enclosure) {
+                                image =
+                                    resolveAbsoluteHttpUrl(
+                                        enclosure.getAttribute('url'),
+                                        this.feed.url,
+                                    ) || "";
+                           }
                         }
                     }
 

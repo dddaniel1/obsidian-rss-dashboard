@@ -345,4 +345,26 @@ describe("ArticleRenderer load full text with Readability", () => {
     expect(onStateChange).toHaveBeenCalledWith(false, false);
     expect(fetchFullArticleContentWithOutcomeMock).toHaveBeenCalledTimes(1);
   });
+
+  it("does not render images resolved against Obsidian's app origin", async () => {
+    const fullArticleHtml =
+      '<img src="app://obsidian.md/assets/images/software-factories/loop-harness-factory.svg" alt="Loop harness">' +
+      "<p>" +
+      "Mangled relative images must not reach the DOM. ".repeat(20) +
+      "</p>";
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
+      content: fullArticleHtml,
+      failureType: "none",
+    });
+
+    await renderer.render(container, makeItem());
+    await renderer.loadFullArticle();
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector(".rss-reader-article-content")?.textContent,
+      ).toContain("Mangled relative images");
+    });
+
+    expect(container.querySelector('img[src^="app://"]')).toBeNull();
+  });
 });

@@ -2,6 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   isLatexFormulaImage,
   optimizeImageUrl,
+  resolveArticleImageBaseUrl,
+  resolveSrcsetUrls,
+  retryImageWithOriginReferrer,
+  retryLazyImageSource,
 } from "../../../src/utils/image-url-utils.js";
 
 describe("isLatexFormulaImage", () => {
@@ -96,6 +100,81 @@ describe("optimizeImageUrl", () => {
 
   it("leaves empty input as empty", () => {
     expect(optimizeImageUrl("")).toBe("");
+  });
+});
+
+describe("retryLazyImageSource", () => {
+  it("replaces a failed placeholder with its retained data-src once", () => {
+    const image = document.createElement("img");
+    image.setAttribute("src", "data:image/gif;base64,placeholder");
+    image.setAttribute("data-src", "https://cdn.example.com/article.png");
+    image.setAttribute("srcset", "https://cdn.example.com/other.png 2x");
+
+    expect(retryLazyImageSource(image)).toBe(true);
+    expect(image.getAttribute("src")).toBe(
+      "https://cdn.example.com/article.png",
+    );
+    expect(image.hasAttribute("srcset")).toBe(false);
+    expect(retryLazyImageSource(image)).toBe(false);
+  });
+});
+
+describe("retryImageWithOriginReferrer", () => {
+  it("retries one remote URL with an origin-only referrer policy", () => {
+    const image = document.createElement("img");
+    image.setAttribute("src", "https://cdn.example.com/article.png");
+    image.setAttribute("referrerpolicy", "no-referrer");
+
+    expect(retryImageWithOriginReferrer(image)).toBe(true);
+    expect(image.getAttribute("src")).toBe(
+      "https://cdn.example.com/article.png",
+    );
+    expect(image.getAttribute("referrerpolicy")).toBe("origin");
+    expect(retryImageWithOriginReferrer(image)).toBe(false);
+  });
+});
+
+describe("resolveArticleImageBaseUrl", () => {
+  it("falls back to the feed URL when an article has no usable HTTP link", () => {
+    expect(
+      resolveArticleImageBaseUrl(
+        "app://obsidian.md/blog/article",
+        "https://example.com/feed.xml",
+      ),
+    ).toBe("https://example.com/feed.xml");
+  });
+});
+
+describe("resolveSrcsetUrls", () => {
+  const base = "https://addyosmani.com/blog/software-factories/";
+
+  it("resolves root-relative candidates while preserving descriptors", () => {
+    expect(
+      resolveSrcsetUrls("/img/loop.svg 480w, /img/loop.svg 960w", base),
+    ).toBe(
+      "https://addyosmani.com/img/loop.svg 480w, https://addyosmani.com/img/loop.svg 960w",
+    );
+  });
+
+  it("repairs candidates that were resolved against Obsidian's app origin", () => {
+    expect(resolveSrcsetUrls("app://obsidian.md/img/loop.svg 480w", base)).toBe(
+      "https://addyosmani.com/img/loop.svg 480w",
+    );
+  });
+
+  it("leaves absolute and data URI candidates untouched", () => {
+    const srcset =
+      "https://cdn.example.com/a.png 480w, data:image/png;base64,aGVsbG8= 2x";
+    expect(resolveSrcsetUrls(srcset, base)).toBe(srcset);
+  });
+
+  it("leaves comma-bearing candidate tokens untouched for the sanitizer", () => {
+    const srcset = "https://cdn.example.com/fetch?url=a,b 480w";
+    expect(resolveSrcsetUrls(srcset, base)).toBe(srcset);
+  });
+
+  it("returns the input unchanged when no base URL is available", () => {
+    expect(resolveSrcsetUrls("/img/loop.svg", "")).toBe("/img/loop.svg");
   });
 });
 

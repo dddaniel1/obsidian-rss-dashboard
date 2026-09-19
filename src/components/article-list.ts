@@ -5,6 +5,7 @@ import { ArticleEmptyState } from "./article-empty-state";
 import { setCssProps } from "../utils/platform-utils";
 import type { FilterContext } from "../utils/filter-detection";
 import { HighlightService } from "../services/highlight-service";
+import type { ImageRecoveryLease } from "../services/image-recovery-service";
 import { createTagsDropdownPortal } from "../utils/tags-dropdown-portal";
 import {
   groupArticles as groupArticlesUtil,
@@ -23,6 +24,7 @@ import { renderFeedView as renderFeedViewUtil } from "./article-list/views/feed-
 import { renderListView as renderListViewUtil } from "./article-list/views/list-view";
 import { renderCardView as renderCardViewUtil } from "./article-list/views/card-view";
 import type {
+  AcquireRecoveredImage,
   BaseViewContext,
   ViewDeps,
 } from "./article-list/views/view-types";
@@ -66,6 +68,7 @@ interface ArticleListCallbacks {
   onOpenTagsSettings?: () => Promise<void> | void;
   onTagsMutated?: () => void;
   onResolveCachedImageUrl?: (remoteUrl: string) => string | null;
+  onAcquireRecoveredImage?: AcquireRecoveredImage;
 }
 
 export class ArticleList {
@@ -100,6 +103,8 @@ export class ArticleList {
   private activeFilterToggleBtn: HTMLElement | null = null;
   private activeFilterOutsideListenerCleanup: (() => void) | null = null;
   private pendingCardTopAnchor: boolean = false;
+  private imageRenderGeneration = 0;
+  private readonly recoveredImageLeases = new Set<ImageRecoveryLease>();
   private documentListeners: Array<{
     target: Document | Window;
     type: string;
@@ -199,6 +204,8 @@ export class ArticleList {
   }
 
   public destroy(): void {
+    this.imageRenderGeneration += 1;
+    this.releaseRecoveredImages();
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
@@ -449,6 +456,8 @@ export class ArticleList {
   }
 
   render(): void {
+    this.imageRenderGeneration += 1;
+    this.releaseRecoveredImages();
     const scrollPosition = this.container.scrollTop;
 
     this.container.empty();
@@ -1364,9 +1373,44 @@ export class ArticleList {
       showFeedSource: this.showFeedSource,
       settings: this.settings,
       resolveCachedImageUrl: this.callbacks.onResolveCachedImageUrl,
+      recoverImage: (image, remoteUrl, articleUrl) =>
+        this.recoverImage(image, remoteUrl, articleUrl),
       highlightService: this.highlightService,
       callbacks: this.callbacks,
     };
+  }
+
+  private async recoverImage(
+    image: HTMLImageElement,
+    remoteUrl: string,
+    articleUrl: string,
+  ): Promise<boolean> {
+    const acquire = this.callbacks.onAcquireRecoveredImage;
+    if (!acquire) return false;
+    const generation = this.imageRenderGeneration;
+    const lease = await acquire(remoteUrl, articleUrl);
+    if (
+      !lease ||
+      generation !== this.imageRenderGeneration ||
+      !image.ownerDocument.contains(image)
+    ) {
+      lease?.release();
+      return false;
+    }
+
+    image.closest("picture")?.querySelectorAll("source").forEach((source) =>
+      source.remove(),
+    );
+    image.removeAttribute("srcset");
+    image.removeAttribute("sizes");
+    image.setAttribute("src", lease.url);
+    this.recoveredImageLeases.add(lease);
+    return true;
+  }
+
+  private releaseRecoveredImages(): void {
+    for (const lease of this.recoveredImageLeases) lease.release();
+    this.recoveredImageLeases.clear();
   }
 
   private getViewDeps(): ViewDeps {

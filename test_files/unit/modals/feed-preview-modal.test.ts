@@ -124,6 +124,64 @@ describe("FeedPreviewModal", () => {
     ).toBeFalsy();
   });
 
+  it("resolves a relative article image against the feed URL", async () => {
+    const { FeedPreviewModal } = await import("../../../src/modals/feed-preview-modal");
+
+    fetchFeedXmlMock.mockResolvedValue(
+      `<?xml version="1.0"?>
+      <rss xmlns:content="http://purl.org/rss/1.0/modules/content/">
+        <channel>
+          <item>
+            <title>One</title>
+            <link>https://example.com/practical-loop-engineering</link>
+            <description><![CDATA[<p>Desc</p><img src="assets/images/practical-loop-engineering/anatomy-of-a-loop.svg" />]]></description>
+          </item>
+        </channel>
+      </rss>`,
+    );
+
+    const app = obsidian.App.createMock();
+    const modal = new FeedPreviewModal(app as unknown as obsidian.App, baseFeed as unknown as FeedMetadata);
+    modal.open();
+
+    await flushPromises();
+
+    const img = modal.contentEl.querySelector(
+      ".feed-preview-article-image",
+    ) as HTMLImageElement;
+    expect(img).toBeTruthy();
+    expect(img.getAttribute("src")).toBe(
+      "https://example.com/assets/images/practical-loop-engineering/anatomy-of-a-loop.svg",
+    );
+  });
+
+  it("drops an article image that cannot resolve to an http URL", async () => {
+    const { FeedPreviewModal } = await import("../../../src/modals/feed-preview-modal");
+
+    fetchFeedXmlMock.mockResolvedValue(
+      `<?xml version="1.0"?>
+      <rss xmlns:content="http://purl.org/rss/1.0/modules/content/">
+        <channel>
+          <item>
+            <title>One</title>
+            <link>https://example.com/1</link>
+            <description><![CDATA[<p>Desc</p><img src="javascript:alert(1)" />]]></description>
+          </item>
+        </channel>
+      </rss>`,
+    );
+
+    const app = obsidian.App.createMock();
+    const modal = new FeedPreviewModal(app as unknown as obsidian.App, baseFeed as unknown as FeedMetadata);
+    modal.open();
+
+    await flushPromises();
+
+    expect(
+      modal.contentEl.querySelector(".feed-preview-article-image-container"),
+    ).toBeFalsy();
+  });
+
   it("renders an error and retries fetching on button click", async () => {
     const { FeedPreviewModal } = await import("../../../src/modals/feed-preview-modal");
 

@@ -526,4 +526,35 @@ describe("ReaderView load full text with Readability", () => {
     );
     expect(fullTextButton.classList.contains("is-loaded")).toBe(false);
   });
+
+  it("does not render images resolved against Obsidian's app origin", async () => {
+    const fullArticleHtml =
+      '<img src="app://obsidian.md/assets/images/software-factories/loop-harness-factory.svg" alt="Loop harness">' +
+      "<p>" +
+      "Mangled relative images must not reach the DOM. ".repeat(20) +
+      "</p>";
+    fetchFullArticleContentWithOutcomeMock.mockResolvedValueOnce({
+      content: fullArticleHtml,
+      failureType: "none",
+    });
+
+    await readerView.onOpen();
+    await readerView.displayItem(makeItem());
+
+    const fullTextButton = readerView.contentEl.querySelector(
+      ".rss-reader-fulltext-button",
+    ) as HTMLElement;
+    fullTextButton.click();
+
+    const readingContainer = (
+      readerView as unknown as { readingContainer: HTMLElement }
+    ).readingContainer;
+    await vi.waitFor(() => {
+      expect(readingContainer.textContent).toContain(
+        "Mangled relative images",
+      );
+    });
+
+    expect(readingContainer.querySelector('img[src^="app://"]')).toBeNull();
+  });
 });
