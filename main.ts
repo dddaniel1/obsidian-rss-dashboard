@@ -345,6 +345,11 @@ export default class RssDashboardPlugin extends Plugin {
   private vaultMetadataReloadTimer: number | null = null;
   private startupRefreshTimeoutId: number | null = null;
   private progressSaveDebounce: number | null = null;
+  private syncProgressSaveDebounce: number | null = null;
+  private pendingSyncProgress: {
+    remoteId: string;
+    progress: { position: number; duration: number; lastUpdated: number };
+  } | null = null;
   private autoRefreshScheduler: FeedRefreshScheduler | null = null;
   private suppressWatcherUntil = 0;
   private static readonly FEED_REFRESH_RENDER_THROTTLE_MS = 250;
@@ -2692,9 +2697,76 @@ export default class RssDashboardPlugin extends Plugin {
     sourceItem?: FeedItem,
   ): void {
     const syncState = this.syncRuntime?.service?.snapshot();
-    if (syncState && remoteArticleId(itemGuid, syncState.accountId)) {
-      if (this.settings.media.rememberPlaybackProgress) {
-        void this.updateRemoteArticle(itemGuid, { playbackProgress: { position, duration, lastUpdated: Date.now() } }).catch(() => new Notice("Could not save playback progress"));
+    const remoteId = syncState ? remoteArticleId(itemGuid, syncState.accountId) : undefined;
+    if (syncState && remoteId) {
+      if (!this.settings.media.rememberPlaybackProgress) {
+        return;
+      }
+      if (!(duration > 0) || position < 0) {
+        return;
+      }
+
+      const progress = { position, duration, lastUpdated: Date.now() };
+
+      if (sourceItem) {
+        sourceItem.playbackProgress = progress;
+      }
+
+      const remoteArticle = syncState.articles[remoteId];
+      if (remoteArticle) {
+        remoteArticle.playbackProgress = progress;
+      }
+
+      for (const leaf of this.app.workspace.getLeavesOfType(RSS_DASHBOARD_VIEW_TYPE)) {
+        const view = leaf.view;
+        if (view instanceof RssDashboardView) {
+          view.applyExternalArticleUpdate(
+            itemGuid,
+            feedUrl,
+            { playbackProgress: progress },
+            false,
+          );
+        }
+      }
+
+      void this.syncReaderArticleUpdate(itemGuid, { playbackProgress: progress });
+
+      if (this.pendingSyncProgress && this.pendingSyncProgress.remoteId !== remoteId) {
+        const prev = this.pendingSyncProgress;
+        this.pendingSyncProgress = null;
+        if (this.syncProgressSaveDebounce !== null) {
+          window.clearTimeout(this.syncProgressSaveDebounce);
+          this.syncProgressSaveDebounce = null;
+        }
+        void this.syncRuntime?.service
+          ?.updateLocalArticle(prev.remoteId, { playbackProgress: prev.progress })
+          .catch(() => new Notice("Could not save playback progress"));
+      }
+
+      if (flush) {
+        if (this.syncProgressSaveDebounce !== null) {
+          window.clearTimeout(this.syncProgressSaveDebounce);
+          this.syncProgressSaveDebounce = null;
+        }
+        this.pendingSyncProgress = null;
+        void this.syncRuntime?.service
+          ?.updateLocalArticle(remoteId, { playbackProgress: progress })
+          .catch(() => new Notice("Could not save playback progress"));
+        return;
+      }
+
+      this.pendingSyncProgress = { remoteId, progress };
+      if (this.syncProgressSaveDebounce === null) {
+        this.syncProgressSaveDebounce = window.setTimeout(() => {
+          this.syncProgressSaveDebounce = null;
+          if (this.pendingSyncProgress) {
+            const pending = this.pendingSyncProgress;
+            this.pendingSyncProgress = null;
+            void this.syncRuntime?.service
+              ?.updateLocalArticle(pending.remoteId, { playbackProgress: pending.progress })
+              .catch(() => new Notice("Could not save playback progress"));
+          }
+        }, 2000);
       }
       return;
     }
@@ -2793,6 +2865,11 @@ export default class RssDashboardPlugin extends Plugin {
       window.clearTimeout(this.progressSaveDebounce);
       this.progressSaveDebounce = null;
     }
+    if (this.syncProgressSaveDebounce !== null) {
+      window.clearTimeout(this.syncProgressSaveDebounce);
+      this.syncProgressSaveDebounce = null;
+    }
+    this.pendingSyncProgress = null;
 
     let clearedCount = 0;
     for (const feed of this.settings.feeds) {
@@ -2803,6 +2880,18 @@ export default class RssDashboardPlugin extends Plugin {
 
         delete item.playbackProgress;
         clearedCount++;
+      }
+    }
+
+    const syncService = this.syncRuntime?.service;
+    if (syncService) {
+      const state = syncService.snapshot();
+      for (const article of Object.values(state.articles)) {
+        if (article.playbackProgress) {
+          delete article.playbackProgress;
+          clearedCount++;
+          void syncService.updateLocalArticle(article.id, { playbackProgress: undefined });
+        }
       }
     }
 
@@ -3383,6 +3472,18 @@ export default class RssDashboardPlugin extends Plugin {
       void this.saveSettings();
     }
 
+    if (this.syncProgressSaveDebounce !== null) {
+      window.clearTimeout(this.syncProgressSaveDebounce);
+      this.syncProgressSaveDebounce = null;
+    }
+    if (this.pendingSyncProgress) {
+      const pending = this.pendingSyncProgress;
+      this.pendingSyncProgress = null;
+      void this.syncRuntime?.service
+        ?.updateLocalArticle(pending.remoteId, { playbackProgress: pending.progress })
+        .catch(() => {});
+    }
+
     if (this.vaultMetadataReloadTimer !== null) {
       window.clearTimeout(this.vaultMetadataReloadTimer);
       this.vaultMetadataReloadTimer = null;
@@ -3391,7 +3492,7 @@ export default class RssDashboardPlugin extends Plugin {
     this.cancelPendingStartupRefresh();
 
     // Run backups asynchronously on plugin disable/unload (best effort)
-    void this.backupService.performAutoBackups();
+    void this.backupService?.performAutoBackups();
   }
 
   public cancelPendingStartupRefresh(): void {

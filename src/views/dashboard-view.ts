@@ -3060,7 +3060,11 @@ export class RssDashboardView extends ItemView {
     updates: Partial<FeedItem>,
     shouldRerender = false,
   ): void {
-    const feed = this.settings.feeds.find((f) => f.url === feedUrl);
+    const feed =
+      (feedUrl ? this.settings.feeds.find((f) => f.url === feedUrl) : undefined) ||
+      this.settings.feeds.find((f) =>
+        f.items.some((item) => item.guid === articleGuid),
+      );
     if (!feed) return;
 
     const originalArticle = feed.items.find(

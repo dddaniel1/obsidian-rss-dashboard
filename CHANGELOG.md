@@ -23,6 +23,7 @@
 
 ### Fixes
 
+- Fixed article list view flickering during podcast and video playback from FreshRSS feeds by debouncing playback progress persistence, updating local state directly without invoking remote sync runtime actions or notifying dashboard subscribers, and preventing continuous background server synchronizations.
 - Improved reader translation interaction and performance: added a spinning loading state, accessible attributes, and live progress notices to the translate button, concurrent paragraph translation with progressive in-place rendering, memory caching for repeated translations, and race safety when switching articles during an active translation.
 - Fixed feed images failing to load from sources with hotlink protection by sending no referrer for subscription article images, cover and hero previews.
 - Fixed FreshRSS synced articles missing preview images in Dashboard Card and Feed views, and synced feeds missing their icons, by deriving article covers from content images (decoding HTML entities in image URLs so feeds like Twitter media resolve correctly) and passing through the server-provided subscription icon URLs.
